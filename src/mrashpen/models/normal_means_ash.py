@@ -24,6 +24,12 @@ class NormalMeansASH:
         if not isinstance(s, np.ndarray):
             self._s = np.repeat(s, self._n)
         self._s2 = np.square(self._s)
+
+
+    def set_s2_eps(self, eps):
+        self._s2 += eps
+        self._s = np.sqrt(self._s2)
+        return
         
 
     @property
@@ -69,6 +75,29 @@ class NormalMeansASH:
         return deriv2
 
 
+    @property
+    def ML_s2deriv(self):
+        L = np.exp(self.logLjk(derive = 1)) # N x K
+        s2  = self._s2.reshape(self._n, 1)
+        sk2 = np.square(self._sk).reshape(1, self._k)
+        y2  = np.square(self._y).reshape(self._n, 1)
+        t2 = 1 - (y2 / (s2 + sk2)) # N x K
+        deriv = - np.dot(np.multiply(L, t2), self._wk) * np.sqrt(0.125 / np.pi)
+        return deriv
+
+
+    @property
+    def ML_deriv_s2deriv(self):
+        L = np.exp(self.logLjk(derive = 2)) # N x K
+        s2  = self._s2.reshape(self._n, 1)
+        sk2 = np.square(self._sk).reshape(1, self._k)
+        y2  = np.square(self._y).reshape(self._n, 1)
+        t2 = 3 - (y2 / (s2 + sk2)) # N x K
+        deriv = np.dot(np.multiply(L, t2), self._wk) * np.sqrt(0.125 / np.pi) * self._y
+        return deriv
+
+
+
     def logLjk(self, derive = 0):
         '''
         this is one part of the posterior in normal means model. LogLjk is defined as:    
@@ -77,7 +106,7 @@ class NormalMeansASH:
             p''(y | f, s2) = (y^2 / sqrt(2 * pi)) * sum_k [w_k * exp(logLjk)] + p' / y   # derive = 2 
         returns N x K matrix
         '''
-        s2  = np.square(self._s).reshape(self._n, 1)
+        s2  = self._s2.reshape(self._n, 1)
         sk2 = np.square(self._sk).reshape(1, self._k)
         y2  = np.square(self._y).reshape(self._n, 1)
         # N x K length vector of posterior variances
@@ -92,7 +121,7 @@ class NormalMeansASH:
 
 
     def posterior(self):
-        s2  = np.square(self._s).reshape(self._n, 1)
+        s2  = self._s2.reshape(self._n, 1)
         sk2 = np.square(self._sk).reshape(1, self._k)
         y2  = np.square(self._y).reshape(self._n, 1)
         v2jk  = s2 + sk2
@@ -137,3 +166,13 @@ class NormalMeansASH:
         mL1  = self.ML_deriv.reshape(self._n, 1)
         l2 = (Ljk1 / mL) - (Ljk0 * mL1 / np.square(mL))
         return l2
+
+
+    @property
+    def logML_s2deriv(self):
+        return self.ML_s2deriv / self.ML
+
+
+    @property
+    def logML_deriv_s2deriv(self):
+        return (self.ML * self.ML_deriv_s2deriv - self.ML_deriv * self.ML_s2deriv) / np.square(self.ML)
