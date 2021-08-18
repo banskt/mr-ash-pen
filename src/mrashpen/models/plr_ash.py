@@ -8,6 +8,7 @@ import logging
 
 from ..models.normal_means_ash import NormalMeansASH
 from ..utils.logs import MyLogger
+from ..utils.decorators import run_once
 
 class PenalizedMrASH:
 
@@ -26,17 +27,6 @@ class PenalizedMrASH:
             self.logger = MyLogger(__name__)
         else:
             self.logger = MyLogger(__name__, level = logging.INFO)
-        self._calculate_plr_once = False
-
-
-
-    def run_once(f):
-        def wrapper(*args, **kwargs):
-            if not wrapper.has_run:
-                wrapper.has_run = True
-                return f(*args, **kwargs)
-        wrapper.has_run = False
-        return wrapper
 
 
     '''
@@ -95,42 +85,41 @@ class PenalizedMrASH:
         return lambdaj, l_bgrad, l_wgrad, l_sgrad
 
 
+    @run_once
     def calculate_plr_objective(self):
-        if not self._calculate_plr_once:
-            self.logger.debug("Calculating PLR objective")
-            '''
-            Initiate the Normal Means model
-            which is used for the calculation
-            '''
-            nmash = NormalMeansASH(self._b, self._vj, self._wk, self._sk)
-            '''
-            M(b) and lambda_j
-            '''
-            Mb, Mb_bgrad, Mb_wgrad, Mb_s2grad = self.shrinkage_operator(nmash)
-            lj, l_bgrad,  l_wgrad,  l_s2grad  = self.penalty_operator(nmash)
-            '''
-            Objective function
-            '''
-            r = self._y - np.dot(self._X, Mb)
-            rTr  = np.sum(np.square(r))
-            rTX  = np.dot(r.T, self._X)
-            obj  = (0.5 * rTr / self._s2) + np.sum(lj)
-            obj += 0.5 * (self._n - self._p) * np.log(2 * np.pi * self._s2)
-            '''
-            Gradients
-            '''
-            bgrad  = - (rTX * Mb_bgrad / self._s2) + l_bgrad
-            wgrad  = - np.dot(rTX, Mb_wgrad) / self._s2  + l_wgrad
-            s2grad = - 0.5 * rTr / (self._s2 * self._s2) \
-                     - np.dot(rTX, Mb_s2grad) / self._s2 \
-                     + np.sum(l_s2grad) \
-                     + 0.5 * (self._n - self._p) / self._s2
+        self.logger.debug("Calculating PLR objective")
+        '''
+        Initiate the Normal Means model
+        which is used for the calculation
+        '''
+        nmash = NormalMeansASH(self._b, self._vj, self._wk, self._sk)
+        '''
+        M(b) and lambda_j
+        '''
+        Mb, Mb_bgrad, Mb_wgrad, Mb_s2grad = self.shrinkage_operator(nmash)
+        lj, l_bgrad,  l_wgrad,  l_s2grad  = self.penalty_operator(nmash)
+        '''
+        Objective function
+        '''
+        r = self._y - np.dot(self._X, Mb)
+        rTr  = np.sum(np.square(r))
+        rTX  = np.dot(r.T, self._X)
+        obj  = (0.5 * rTr / self._s2) + np.sum(lj)
+        obj += 0.5 * (self._n - self._p) * np.log(2 * np.pi * self._s2)
+        '''
+        Gradients
+        '''
+        bgrad  = - (rTX * Mb_bgrad / self._s2) + l_bgrad
+        wgrad  = - np.dot(rTX, Mb_wgrad) / self._s2  + l_wgrad
+        s2grad = - 0.5 * rTr / (self._s2 * self._s2) \
+                 - np.dot(rTX, Mb_s2grad) / self._s2 \
+                 + np.sum(l_s2grad) \
+                 + 0.5 * (self._n - self._p) / self._s2
     
-            self._objective = obj
-            self._bgrad = bgrad
-            self._wgrad = wgrad
-            self._s2grad = s2grad
-        self._calculate_plr_once = True
+        self._objective = obj
+        self._bgrad = bgrad
+        self._wgrad = wgrad
+        self._s2grad = s2grad
         return
 
 
