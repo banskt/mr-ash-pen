@@ -6,8 +6,10 @@ wrapper for different minimization methods
 import numpy as np
 from scipy import optimize as sp_optimize
 import logging
+import numbers
 
 from ..models.normal_means_ash import NormalMeansASH
+from ..models.plr_ash import PenalizedMrASH as PenMrASH
 from ..utils.logs import MyLogger
 
 class PenalizedRegression:
@@ -48,6 +50,7 @@ class PenalizedRegression:
         self._optimize_s = optimize_s
         self._wtol = wtol
         self._witer = witer
+        self._debug = debug
         if debug:
             self.logger = MyLogger(__name__)
         else:
@@ -60,8 +63,12 @@ class PenalizedRegression:
 
 
     @property
-    def wk(self):
+    def prior(self):
         return self._wk
+
+    @property
+    def residual_var(self):
+        return self._s2
 
 
     @property
@@ -72,6 +79,11 @@ class PenalizedRegression:
     @property
     def obj_path(self):
         return self._hpath
+
+
+    @property
+    def s2_path(self):
+        return self._s2path
 
 
     @property
@@ -89,137 +101,140 @@ class PenalizedRegression:
         return self._fitobj
 
 
-
-    def shrinkage_operator(self, NMash):
-        '''
-        posterior expectation of b under NM model
-        calculated using Tweedie's formula
-        '''
-        n       = NMash.y.shape[0]
-        S       = NMash.y + NMash.yvar * NMash.logML_deriv
-        S_bgrad = 1       + NMash.yvar * NMash.logML_deriv2
-        S_wgrad = NMash.yvar.reshape(n, 1) * NMash.logML_deriv_wderiv
-        return S, S_bgrad, S_wgrad
-
-
-    def hS_operator(self, NMash):
-        n       = NMash.y.shape[0]
-        s2      = NMash.yvar
-        h       = - NMash.logML  - 0.5 * s2 * NMash.logML_deriv * NMash.logML_deriv
-        # Gradient with respect to b
-        h_bgrad = - NMash.logML_deriv  - s2 * NMash.logML_deriv * NMash.logML_deriv2
-        # Gradient with repect to w
-        h_wgrad = - NMash.logML_wderiv - s2.reshape(n, 1) * NMash.logML_deriv.reshape(n, 1) * NMash.logML_deriv_wderiv
-        h_wgrad = np.sum(h_wgrad, axis = 0)
-        return h, h_bgrad, h_wgrad
-
-
-    def objective(self, params, X, y, s2init, winit, sk):
-        '''
-        The objective function is written as
-        H(Sb, f, s^2) = (0.5 / s^2) || y - X.Sb||^2 } + h(b, w)
-        where, h(b, w) := sum_j (d_j / s^2) rho[g, s/sqrt(dj)] (Sb)
-        '''
-        dj = np.sum(np.square(X), axis = 0)
-        n, p = X.shape
-        k = sk.shape[0]
-
+    def objective(self, params, s2init, winit):
         '''
         which parameters are being optimized
         '''
-        b = params[:p]
-        wk = params[p:p+k] if self._optimize_w else winit
-        s2idx = p+k  if self._optimize_w else p
-        s2 = params[s2idx] if self._optimize_s else s2init
-        sj = np.sqrt(s2 / dj)
-
-
-        NMash = NormalMeansASH(b, sj, wk, sk)
-
+        b, wk, s2 = self.split_optparams(params)
+        if not self._optimize_w: wk = winit
+        if not self._optimize_s: s2 = s2init
         '''
-        S(b) and h(S(b))
+        Get the objective function and gradients
         '''
-        Sb, Sb_bgrad, Sb_wgrad = self.shrinkage_operator(NMash)
-        hS, hS_bgrad, hS_wgrad = self.hS_operator(NMash)
-
+        pmash = PenMrASH(self._X, self._y, b, np.sqrt(s2), wk, self._sk, dj = self._dj, debug = self._debug)
+        obj = pmash.objective
+        bgrad, wgrad, s2grad = pmash.gradients
         '''
-        Objective function
+        Combine gradients of all parameters for optimization
+        Maximum p + k + 1 parameters: b, wk, s2
         '''
-        r = y - np.dot(X, Sb)
-        if self._optimize_w:
-            lagrng = 1
-
-        obj = (0.5 * np.sum(np.square(r)) / s2) + np.sum(hS)
-        #self.logger.debug(f'Objective without Lagrangian: {obj}')
-        # Add Lagrange multiplier if optimizing for wk
-        if self._optimize_w:
-            obj += lagrng * np.sum(wk)
-            #self.logger.debug(f'Objective with Lagrangian: {obj}')
-            #self.logger.debug(f'Sum of wk: {np.sum(wk)}')
-        
+        lagrng = 1
+        if self._optimize_w: obj += lagrng * np.sum(wk)
+        grad = self.combine_optparams(bgrad, wgrad + lagrng, s2grad)
         '''
-        Gradients
+        Book-keeping
         '''
-        grad = - (np.dot(r.T, X) * Sb_bgrad / s2) + np.sum(hS_bgrad)
-        if self._optimize_w:
-            wgrad  = - np.dot(np.dot(r.T, X), Sb_wgrad) / s2 + hS_wgrad + lagrng
-            grad = np.concatenate((grad, wgrad))
-
         self._obj_call_count += 1
         self._current_obj = obj
-        #self.logger.debug(f'Objective evaluation count {self._obj_call_count}. Objective: {obj}')
-
+        self._current_s2  = s2
         return obj, grad
-        
 
-    def fit(self, X, y, sk, binit = None, winit = None, s2init = 1):
+
+    def fit(self, X, y, sk, binit = None, winit = None, s2init = None):
+        ''' 
+        This values will not change during the optimization
+        '''
+        self._X  = X
+        self._y  = y
+        self._sk = sk
+        self._dj = np.sum(np.square(X), axis = 0)
+        '''
+        Initialization
+        '''
         n, p = X.shape
         k = sk.shape[0]
         if binit is None:
             binit = np.zeros(p)
         if winit is None:
             winit = self.initialize_mixcoef(k)
+        if s2init is None:
+            s2init = 1.0
         assert(np.abs(np.sum(winit) - 1) < 1e-5)
-
-        params = binit.copy()
-        bounds = [(None, None) for x in params]
-        if self._optimize_w: 
-            params = np.concatenate((params, winit))
-            bounds += [(0, None) for x in winit]
-        if self._optimize_s: 
-            params = np.concatenate((params, s2init))
-            bounds.append((0,1))
-
-        # cannot use bounds with CG.
-        if self._method == 'CG': bounds = None
-
-        args = X, y, s2init, winit, sk
-        self._hpath = list()
+        '''
+        Combine all parameters
+        '''
+        params = self.combine_optparams(binit, winit, s2init)
+        '''
+        Bounds for optimization
+        '''
+        bbounds = [(None, None) for x in binit]
+        wbounds = [(0, None) for x in winit]
+        s2bound = [(0, None)]
+        # bounds can be used with L-BFGS-B.
+        bounds = None
+        if self._method == 'L-BFGS-B':
+            bounds  = self.combine_optparams(bbounds, wbounds, s2bound)
+        '''
+        We need to pass s2init and winit as separate arguments
+        in case they are not being optimized.
+        _hpath: keeps track of the objective function.
+        '''
+        args = s2init, winit
+        self._hpath  = list()
+        self._s2path = list()
         self._callback_count = 0
         self._obj_call_count = 0
         plr_min = sp_optimize.minimize(self.objective, 
                                        params,
                                        args = args, 
                                        method = self._method, 
-                                       jac=True,
+                                       jac = True,
                                        bounds = bounds, 
                                        callback = self.callback,
                                        options = self._opts
                                        )
-
+        '''
+        Return values
+        '''
         self._fitobj = plr_min
-        bopt = plr_min.x[:p].copy()
-        wopt = plr_min.x[p:p+k].copy() if self._optimize_w else winit
-        wopt /= np.sum(wopt)
-        NMash = NormalMeansASH(bopt, np.sqrt(s2init), wopt, sk)
-        self._b = self.shrinkage_operator(NMash)[0]
+        bopt, wopt, s2opt = self.split_optparams(plr_min.x.copy())
+        if self._optimize_w:
+            wopt /= np.sum(wopt)
+        else:
+            wopt = winit
+        if not self._optimize_s: s2opt = s2init
+        pmash = PenMrASH(self._X, self._y, bopt, np.sqrt(s2opt), wopt, self._sk, dj = self._dj)
+        self._b  = pmash.shrink_b
+        #self._b  = bopt
         self._wk = wopt
+        self._s2 = s2opt
         self._hpath.append(self._current_obj)
-
+        self._s2path.append(self._current_s2)
+        '''
+        Debug logging
+        '''
         self.logger.debug(f'Number of iterations: {plr_min.nit}')
         self.logger.debug(f'Number of callbacks: {self._callback_count}')
         self.logger.debug(f'Number of function calls: {self._obj_call_count}')
 
+
+    def split_optparams(self, optparams):
+        n, p = self._X.shape
+        k    = self._sk.shape[0]
+        bj   = optparams[:p]. copy()
+        if self._optimize_w:
+            wk = optparams[p:p+k].copy()
+        else:
+            wk = None
+        if self._optimize_s:
+            s2idx = p + k if self._optimize_w else p
+            s2 = optparams[s2idx].copy()
+        else:
+            s2 = None
+        return bj, wk, s2
+
+
+    def combine_optparams(self, bj, wk, s2):
+        optparams = bj.copy()
+        for val, is_included in zip([wk, s2], [self._optimize_w, self._optimize_s]): 
+            if is_included:
+                if isinstance(val, np.ndarray):
+                    optparams = np.concatenate((optparams, val))
+                elif isinstance(val, numbers.Real):
+                    optparams = np.concatenate((optparams, np.array([val])))
+                elif isinstance (val, list):
+                    optparams += val
+        return optparams
 
 
     def ebfit(self, X, y, sk, binit = None, winit = None, s2init = 1):
@@ -234,7 +249,7 @@ class PenalizedRegression:
             self.fit(X, y, sk, binit = bbar, winit = wbar)
             bbar = self._b
             # Update wbar
-            NMash = NormalMeansASH(bbar, np.sqrt(s2init), wbar, sk)
+            NMash = NormalMeansASH(bbar, np.sqrt(s2init), wbar, sk, debug = self._debug)
             phijk, mujk, varjk = NMash.posterior()
             wbar_new = np.sum(phijk, axis = 0) / phijk.shape[0]
             # Tolerance
@@ -250,6 +265,7 @@ class PenalizedRegression:
     def callback(self, params):
         self._callback_count += 1
         self._hpath.append(self._current_obj)
+        self._s2path.append(self._current_s2)
         #self.logger.debug(f'Callback iteration {self._callback_count}')
 
 
@@ -258,4 +274,3 @@ class PenalizedRegression:
         w[1:(k-1)] = np.repeat(1/(k-1), (k - 2))
         w[k-1] = 1 - np.sum(w)
         return w
-

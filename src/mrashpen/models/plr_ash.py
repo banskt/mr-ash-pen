@@ -22,7 +22,7 @@ class PenalizedMrASH:
         self._s2 = np.square(self._s)
         self._wk = wk
         self._sk = sk
-        self.set_Xvar(dj)
+        self.set_Xvar(dj = dj)
         if debug:
             self.logger = MyLogger(__name__)
         else:
@@ -85,9 +85,28 @@ class PenalizedMrASH:
         return lambdaj, l_bgrad, l_wgrad, l_sgrad
 
 
+    def objective_debug(self):
+        nmash = NormalMeansASH(self._b, self._vj, self._wk, self._sk)
+        ''' 
+        M(b) and lambda_j
+        '''
+        Mb, Mb_bgrad, Mb_wgrad, Mb_s2grad = self.shrinkage_operator(nmash)
+        lj, l_bgrad,  l_wgrad,  l_s2grad  = self.penalty_operator(nmash)
+        ''' 
+        Objective function
+        '''
+        r = self._y - np.dot(self._X, Mb)
+        rTr  = np.sum(np.square(r))
+        t1   = 0.5 * rTr / self._s2
+        t2   = np.sum(lj)
+        t3   = (self._n - self._p) * np.log(2 * np.pi * self._s2)
+        obj  = t1 + t2 + t3
+        return obj, t1, t2, t3
+
+
     @run_once
     def calculate_plr_objective(self):
-        self.logger.debug("Calculating PLR objective")
+        self.logger.debug(f"Calculating PLR objective with sigma2 = {self._s2}")
         '''
         Initiate the Normal Means model
         which is used for the calculation
@@ -140,3 +159,9 @@ class PenalizedMrASH:
     def gradients(self):
         self.calculate_plr_objective()
         return self._bgrad, self._wgrad, self._s2grad
+
+    @property
+    def shrink_b(self):
+        nmash = NormalMeansASH(self._b, self._vj, self._wk, self._sk)
+        Mb = self.shrinkage_operator(nmash)[0]
+        return Mb
