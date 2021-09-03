@@ -38,7 +38,7 @@ setuptools.setup(
     ],
     package_dir      = {"": "src"},
     packages         = ["mrashpen"],
-    python_requires  = ">=3.9",
+    python_requires  = ">=3.7",
     install_requires = [
         "numpy>=1.19.4",
     ],

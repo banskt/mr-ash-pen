@@ -58,6 +58,11 @@ class PenalizedRegression:
 
 
     @property
+    def theta(self):
+        return self._theta
+
+
+    @property
     def coef(self):
         return self._b
 
@@ -193,9 +198,9 @@ class PenalizedRegression:
         else:
             wopt = winit
         if not self._optimize_s: s2opt = s2init
+        self._theta = bopt
         pmash = PenMrASH(self._X, self._y, bopt, np.sqrt(s2opt), wopt, self._sk, dj = self._dj)
         self._b  = pmash.shrink_b
-        #self._b  = bopt
         self._wk = wopt
         self._s2 = s2opt
         self._hpath.append(self._current_obj)

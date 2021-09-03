@@ -30,6 +30,7 @@ plr.fit()
 |`plr.coef` | optimized regression coefficients |
 |`plr.prior` | optimized Mr.ASH prior mixture coefficients |
 |`plr.obj_path` | Value of the objective function for all iterations |
+|`plr.theta` | optimized parameter `theta` from the objective function |
 |`plr.fitobj` | [OptimizeResult](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.OptimizeResult.html#scipy.optimize.OptimizeResult) object from scipy.optimize |
 | --- | --- |
 
