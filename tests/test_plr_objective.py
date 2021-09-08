@@ -10,10 +10,12 @@ mlogger = MyLogger(__name__)
 
 class TestPLRObjective(unittest.TestCase):
 
-    def _ash_data(self, n = 100, p = 200, p_causal = 5, pve = 0.5, rho = 0.0, k = 6):
+    def _ash_data(self, n = 200, p = 2000, p_causal = 5, pve = 0.5, rho = 0.0, k = 6, seed = None):
 
         def sd_from_pve (X, b, pve):
             return np.sqrt(np.var(np.dot(X, b)) * (1 - pve) / pve)
+
+        if seed is not None: np.random.seed(seed)
 
         '''
         ASH prior
@@ -38,37 +40,49 @@ class TestPLRObjective(unittest.TestCase):
         return X, y, b, sigma, wk, sk
 
 
-    def test_objective_function_deriv(self, eps = 1e-8):
-        X, y, b, s, wk, sk = self._ash_data()
-        pmash = PenMrASH(X, y, b, s, wk, sk)
+    def test_deriv_basic(self, eps = 1e-8):
+        self._test_objective_function_deriv(eps, is_prior_scaled = False)
+        return
+
+
+    def test_deriv_scaled(self, eps = 1e-8):
+        self._test_objective_function_deriv(eps, is_prior_scaled = True)
+        return
+
+
+    def _test_objective_function_deriv(self, eps, is_prior_scaled = False):
+        X, y, b, s, wk, sk = self._ash_data(seed = 100)
+        pmash = PenMrASH(X, y, b, s, wk, sk, is_prior_scaled = is_prior_scaled)
         obj   = pmash.objective
         bgrad, wgrad, s2grad = pmash.gradients
         bgrad_numeric = np.zeros(X.shape[1])
         for i in range(X.shape[1]):
             bnew = b.copy()
             bnew[i] += eps
-            pmash_beps = PenMrASH(X, y, bnew, s, wk, sk, debug = False)
+            pmash_beps = PenMrASH(X, y, bnew, s, wk, sk, debug = False, is_prior_scaled = is_prior_scaled)
             bgrad_numeric[i] = (pmash_beps.objective - obj) / eps
         wgrad_numeric = np.zeros(wk.shape[0])
         for i in range(wk.shape[0]):
             wknew = wk.copy()
             wknew[i] += eps
-            pmash_weps = PenMrASH(X, y, b, s, wknew, sk, debug = False)
+            pmash_weps = PenMrASH(X, y, b, s, wknew, sk, debug = False, is_prior_scaled = is_prior_scaled)
             wgrad_numeric[i] = (pmash_weps.objective - obj) / eps
-        pmash_s2eps = PenMrASH(X, y, b, s, wk, sk, debug = False)
+        pmash_s2eps = PenMrASH(X, y, b, s, wk, sk, debug = False, is_prior_scaled = is_prior_scaled)
         pmash_s2eps.set_s2_eps(eps)
         s2grad_numeric = (pmash_s2eps.objective - obj) / eps
-        mlogger.debug(f"Gradient with respect to sigma^2: analytic {s2grad}, numeric {s2grad_numeric}")
-        wgrad_string = ','.join([f"{x}" for x in wgrad])
-        wgrad_numeric_string = ','.join([f"{x}" for x in wgrad_numeric])
+        mlogger.debug(f"Gradient with respect to sigma^2: analytic {s2grad:.5f}, numeric {s2grad_numeric:.5f}")
+        wgrad_string = ','.join([f"{x:.5f}" for x in wgrad])
+        wgrad_numeric_string = ','.join([f"{x:.5f}" for x in wgrad_numeric])
         mlogger.debug(f"Gradient with respect to w_k:")
         mlogger.debug(f"analytic {wgrad_string}")
-        mlogger.debug(f"numeric {wgrad_numeric_string}")
+        mlogger.debug(f"numeric  {wgrad_numeric_string}")
         self.assertTrue(np.allclose(bgrad, bgrad_numeric, atol = 1e-4, rtol = 1e-8),
             msg = "Objective function gradient with respect to b does not match numeric results")
-        self.assertTrue(np.allclose(wgrad, wgrad_numeric, atol = 1e-2, rtol = 1e-8), 
+        self.assertTrue(np.allclose(wgrad[1:], wgrad_numeric[1:], atol = 1e-2, rtol = 1e-8), 
             msg = "Objective function gradient with respect to w_k does not match numeric results")
-        self.assertAlmostEqual(s2grad, s2grad_numeric, places = 1,
+        self.assertTrue(np.abs((wgrad[0] - wgrad_numeric[0]) / wgrad[0]) < 1e-6,
+            msg = "Objective function gradient with respect to w_0 does not match numeric results")
+        self.assertAlmostEqual(s2grad, s2grad_numeric, places = 3,
             msg = "Objective function gradient with respect to sigma^2 does not match numeric results")
         return
 

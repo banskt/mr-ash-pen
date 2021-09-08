@@ -6,13 +6,14 @@ for Mr.ASH
 import numpy as np
 import logging
 
+from ..models.normal_means_ash_scaled import NormalMeansASHScaled
 from ..models.normal_means_ash import NormalMeansASH
 from ..utils.logs import MyLogger
 from ..utils.decorators import run_once
 
 class PenalizedMrASH:
 
-    def __init__(self, X, y, b, sigma, wk, sk, dj = None, debug = True):
+    def __init__(self, X, y, b, sigma, wk, sk, dj = None, debug = True, is_prior_scaled = False):
         self._X = X
         self._y = y
         self._b = b
@@ -27,6 +28,7 @@ class PenalizedMrASH:
             self.logger = MyLogger(__name__)
         else:
             self.logger = MyLogger(__name__, level = logging.INFO)
+        self._is_prior_scaled = is_prior_scaled
 
 
     '''
@@ -56,8 +58,11 @@ class PenalizedMrASH:
         M       = nm.y + nm.yvar * nm.logML_deriv
         M_bgrad = 1       + nm.yvar * nm.logML_deriv2
         M_wgrad = nm.yvar.reshape(-1, 1) * nm.logML_deriv_wderiv
-        M_sgrad = (nm.logML_deriv + nm.yvar * nm.logML_deriv_s2deriv) / self._dj
-        return M, M_bgrad, M_wgrad, M_sgrad
+        if self._is_prior_scaled:
+            M_s2grad = (nm.logML_deriv / self._dj) + (nm.yvar * nm.logML_deriv_s2deriv)
+        else:
+            M_s2grad = (nm.logML_deriv + nm.yvar * nm.logML_deriv_s2deriv) / self._dj
+        return M, M_bgrad, M_wgrad, M_s2grad
 
 
     def penalty_operator(self, nm):
@@ -81,12 +86,19 @@ class PenalizedMrASH:
         l_wgrad = np.sum(l_wgrad, axis = 0)
         # Gradient with respect to sigma2
         v2_ld_lds2d = nm.yvar * nm.logML_deriv * nm.logML_deriv_s2deriv
-        l_sgrad = - (nm.logML_s2deriv - 0.5 * np.square(nm.logML_deriv) - v2_ld_lds2d) / self._dj
+        if self._is_prior_scaled:
+            l_sgrad = - (nm.logML_s2deriv + v2_ld_lds2d + 0.5 * np.square(nm.logML_deriv) / self._dj)
+        else:
+            #l_sgrad = - (nm.logML_s2deriv - 0.5 * np.square(nm.logML_deriv) - v2_ld_lds2d) / self._dj
+            l_sgrad = - (nm.logML_s2deriv + 0.5 * np.square(nm.logML_deriv) + v2_ld_lds2d) / self._dj
         return lambdaj, l_bgrad, l_wgrad, l_sgrad
 
 
     def objective_debug(self):
-        nmash = NormalMeansASH(self._b, self._vj, self._wk, self._sk)
+        if self._is_prior_scaled:
+            nmash = NormalMeansASHScaled(self._b, self._s, self._wk, self._sk, d = self._dj)
+        else:
+            nmash = NormalMeansASH(self._b, self._vj, self._wk, self._sk)
         ''' 
         M(b) and lambda_j
         '''
@@ -111,7 +123,10 @@ class PenalizedMrASH:
         Initiate the Normal Means model
         which is used for the calculation
         '''
-        nmash = NormalMeansASH(self._b, self._vj, self._wk, self._sk)
+        if self._is_prior_scaled:
+            nmash = NormalMeansASHScaled(self._b, self._s, self._wk, self._sk, d = self._dj)
+        else:
+            nmash = NormalMeansASH(self._b, self._vj, self._wk, self._sk)
         '''
         M(b) and lambda_j
         '''
@@ -136,15 +151,15 @@ class PenalizedMrASH:
                  + 0.5 * (self._n - self._p) / self._s2
     
         self._objective = obj
-        self._bgrad = bgrad
-        self._wgrad = wgrad
-        self._s2grad = s2grad
+        self._bgrad     = bgrad
+        self._wgrad     = wgrad
+        self._s2grad    = s2grad
         return
 
 
     def set_s2_eps(self, eps):
         self._s2 += eps
-        self._s = np.sqrt(self._s2)
+        self._s   = np.sqrt(self._s2)
         self.set_Xvar(dj = self._dj)
         return
 
@@ -162,6 +177,9 @@ class PenalizedMrASH:
 
     @property
     def shrink_b(self):
-        nmash = NormalMeansASH(self._b, self._vj, self._wk, self._sk)
+        if self._is_prior_scaled:
+            nmash = NormalMeansASHScaled(self._b, self._s, self._wk, self._sk, d = self._dj)
+        else:
+            nmash = NormalMeansASH(self._b, self._vj, self._wk, self._sk)
         Mb = self.shrinkage_operator(nmash)[0]
         return Mb

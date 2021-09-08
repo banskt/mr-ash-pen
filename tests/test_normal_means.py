@@ -12,6 +12,7 @@ class TestNMAsh(unittest.TestCase):
         n = 100
         s = 1.2
         k = 6
+        np.random.seed(100)
         y = np.random.normal(0, 1, size = n)
         wk = np.zeros(k)
         wk[1:(k-1)] = np.repeat(1/(k-1), (k - 2))
@@ -26,7 +27,7 @@ class TestNMAsh(unittest.TestCase):
         nmash_eps = NormalMeansASH(y + eps, s, wk, sk)
         deriv_analytic  = nmash.logML_deriv
         deriv_numeric   = (nmash_eps.logML - nmash.logML) / eps
-        self.assertTrue(np.allclose(deriv_analytic, deriv_numeric), 
+        self.assertTrue(np.allclose(deriv_analytic, deriv_numeric, atol = 1e-6, rtol = 1e-8), 
                         msg = "Normal Means logML derivative does not match numeric results")
         return
 
@@ -47,11 +48,14 @@ class TestNMAsh(unittest.TestCase):
         mlogger.info("Check derivatives of Normal Means logML with respect to w_k")
         y, s, wk, sk = self._NM_data()
         nmash = NormalMeansASH(y, s, wk, sk)
-        nmash_eps = NormalMeansASH(y, s, wk + eps, sk)
-        deriv_analytic = np.sum(nmash.logML_wderiv, axis = 1)
-        deriv_numeric  = (nmash_eps.logML - nmash.logML) / eps
-        self.assertTrue(np.allclose(deriv_analytic, deriv_numeric),
-                        msg = "Normal Means logML derivative with respect to w_k does not match numeric results")
+        for i in range(wk.shape[0]):
+            wkeps = wk.copy()
+            wkeps[i] += eps
+            nmash_eps = NormalMeansASH(y, s, wkeps, sk)
+            deriv_analytic = nmash.logML_wderiv[:, i]
+            deriv_numeric  = (nmash_eps.logML - nmash.logML) / eps
+            self.assertTrue(np.allclose(deriv_analytic, deriv_numeric),
+                            msg = f"Normal Means logML derivative with respect to w_k does not match numeric results for component k = {i}")
         return
 
 
@@ -59,11 +63,14 @@ class TestNMAsh(unittest.TestCase):
         mlogger.info("Check derivatives of Normal Means logML' with respect to w_k")
         y, s, wk, sk = self._NM_data()
         nmash = NormalMeansASH(y, s, wk, sk)
-        nmash_eps = NormalMeansASH(y, s, wk + eps, sk)
-        deriv_analytic = np.sum(nmash.logML_deriv_wderiv, axis = 1)
-        deriv_numeric  = (nmash_eps.logML_deriv - nmash.logML_deriv) / eps
-        self.assertTrue(np.allclose(deriv_analytic, deriv_numeric),
-                        msg = "Normal Means logML' derivative with respect to w_k does not match numeric results")
+        for i in range(wk.shape[0]):
+            wkeps = wk.copy()
+            wkeps[i] += eps 
+            nmash_eps = NormalMeansASH(y, s, wkeps, sk)
+            deriv_analytic = nmash.logML_deriv_wderiv[:, i]
+            deriv_numeric  = (nmash_eps.logML_deriv - nmash.logML_deriv) / eps
+            self.assertTrue(np.allclose(deriv_analytic, deriv_numeric),
+                            msg = f"Normal Means logML' derivative with respect to w_k does not match numeric results for component k = {i}")
         return
 
 

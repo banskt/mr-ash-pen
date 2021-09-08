@@ -16,6 +16,7 @@ class PenalizedRegression:
 
     def __init__(self, method = 'L-BFGS-B', maxiter = 1000, 
                  display_progress = True, tol = 1e-9, options = None, 
+                 is_prior_scaled = False,
                  wtol = 1e-2, witer = 100,
                  optimize_w = False, optimize_s = False, debug = True):
         self._method = method
@@ -51,6 +52,7 @@ class PenalizedRegression:
         self._wtol = wtol
         self._witer = witer
         self._debug = debug
+        self._is_prior_scaled = is_prior_scaled
         if debug:
             self.logger = MyLogger(__name__)
         else:
@@ -116,7 +118,8 @@ class PenalizedRegression:
         '''
         Get the objective function and gradients
         '''
-        pmash = PenMrASH(self._X, self._y, b, np.sqrt(s2), wk, self._sk, dj = self._dj, debug = self._debug)
+        pmash = PenMrASH(self._X, self._y, b, np.sqrt(s2), wk, self._sk, dj = self._dj, 
+                         debug = self._debug, is_prior_scaled = self._is_prior_scaled)
         obj = pmash.objective
         bgrad, wgrad, s2grad = pmash.gradients
         '''
@@ -199,7 +202,8 @@ class PenalizedRegression:
             wopt = winit
         if not self._optimize_s: s2opt = s2init
         self._theta = bopt
-        pmash = PenMrASH(self._X, self._y, bopt, np.sqrt(s2opt), wopt, self._sk, dj = self._dj)
+        pmash = PenMrASH(self._X, self._y, bopt, np.sqrt(s2opt), wopt, self._sk, dj = self._dj, 
+                         debug = self._debug, is_prior_scaled = self._is_prior_scaled)
         self._b  = pmash.shrink_b
         self._wk = wopt
         self._s2 = s2opt
