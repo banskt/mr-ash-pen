@@ -166,8 +166,8 @@ class PenalizedRegression:
         Bounds for optimization
         '''
         bbounds = [(None, None) for x in binit]
-        wbounds = [(0, None) for x in winit]
-        s2bound = [(0, None)]
+        wbounds = [(1e-8, None) for x in winit]
+        s2bound = [(1e-8, None)]
         # bounds can be used with L-BFGS-B.
         bounds = None
         if self._method == 'L-BFGS-B':
@@ -273,6 +273,8 @@ class PenalizedRegression:
 
     def callback(self, params):
         self._callback_count += 1
+        #if self._callback_count == 80:
+        #    print (f"Callback 80")
         self._hpath.append(self._current_obj)
         self._s2path.append(self._current_s2)
         #self.logger.debug(f'Callback iteration {self._callback_count}')

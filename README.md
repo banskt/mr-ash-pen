@@ -22,7 +22,7 @@ to demonstration on simple examples of linear data and trend-filtering data.
 Functions are not documented yet. Here is only a quick start.
 ```
 from mrashpen.inference.penalized_regression import PenalizedRegression as PLR
-plr = PLR(method = 'L-BFGS-B', optimize_w = True, optimize_s = False, debug = False)
+plr = PLR(method = 'L-BFGS-B', optimize_w = True, optimize_s = True, is_prior_scaled = True, debug = False)
 plr.fit()
 ```
 | Returns | Description |
