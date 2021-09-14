@@ -5,13 +5,14 @@ from . import elbo as elbo_py
 from ..models.normal_means_ash_scaled import NormalMeansASHScaled
 
 
-RES_FIELDS = ['theta', 'coef', 'prior', 'residual_var', 'intercept', 'elbo_path', 'outer_elbo_path', 'obj_path']
+RES_FIELDS = ['theta', 'coef', 'prior', 'residual_var', 'intercept', 'elbo_path', 'outer_elbo_path', 'obj_path', 'niter']
 class ResInfo(collections.namedtuple('_ResInfo', RES_FIELDS)):
     __slots__ = ()
 
 
 def ebfit(X, y, sk, wk, binit = None, s2init = 1, 
           maxiter = 1000, qb_maxiter = 100,
+          calculate_elbo = True,
           epstol = 1e-8):
     n, p = X.shape
     k    = sk.shape[0]
@@ -44,7 +45,8 @@ def ebfit(X, y, sk, wk, binit = None, s2init = 1,
 
         ### Update b
         plr = PLR(method = 'L-BFGS-B', optimize_w = False, optimize_s = False, is_prior_scaled = True,
-                  debug = False, display_progress = False, calculate_elbo = True, maxiter = qb_maxiter)
+                  debug = False, display_progress = False, calculate_elbo = calculate_elbo, maxiter = qb_maxiter,
+                  call_from_em = True)
         plr.fit(X, y, sk, binit = theta, winit = w, s2init = s2)
         b = plr.coef
         theta = plr.theta
@@ -73,6 +75,7 @@ def ebfit(X, y, sk, wk, binit = None, s2init = 1,
         ### No elbo in history before one iteration so cannot compare
         if (it > 0) and (elboold - elbo < epstol):
             break
+    print (f"mr.ash.pen (EM) terminated at iteration {it + 1}.")
 
     res = ResInfo(theta = theta,
                   coef = b,
@@ -81,6 +84,7 @@ def ebfit(X, y, sk, wk, binit = None, s2init = 1,
                   intercept = intercept,
                   elbo_path = elbo_path,
                   outer_elbo_path = outer_elbo_path,
-                  obj_path = obj_path)
+                  obj_path = obj_path,
+                  niter = len(elbo_path))
 
     return res

@@ -24,6 +24,7 @@ class PenalizedRegression:
                  witer = 100,
                  optimize_w = True, optimize_s = True, 
                  calculate_elbo = False,
+                 call_from_em = False, # just a hack to prevent printing termination info
                  debug = True):
         self._method = method
         self._opts   = options
@@ -73,6 +74,7 @@ class PenalizedRegression:
             self.logger = MyLogger(__name__, level = logging.INFO)
         self._calculate_elbo = calculate_elbo
         self._v2inv = 0
+        self._call_from_em = call_from_em
 
 
     @property
@@ -246,6 +248,8 @@ class PenalizedRegression:
         '''
         Debug logging
         '''
+        if not self._call_from_em:
+            print (f"mr.ash.pen terminated at iteration {plr_min.nit}.")
         self.logger.debug(f'Number of iterations: {plr_min.nit}')
         self.logger.debug(f'Number of callbacks: {self._callback_count}')
         self.logger.debug(f'Number of function calls: {self._obj_call_count}')

@@ -66,6 +66,11 @@ class MrASHR:
         return self._fitdict['intercept']
 
 
+    @property
+    def elbo_path(self):
+        return self._fitdict['varobj']
+
+
     def array_reduce(self, x):
         ndim = x.ndim
         if ndim == 1:
