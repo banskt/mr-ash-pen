@@ -311,6 +311,10 @@ class NormalMeansASHScaled:
 
         phijk  = np.zeros((self._n, self._k))
         logLjk = self.logLjk()
+        phijk[:, self._nonzero_widx] = logLjk[:, self._nonzero_widx] + np.log(self._wk[self._nonzero_widx])
         zjk    = logLjk[:, self._nonzero_widx] + np.log(self._wk[self._nonzero_widx])
-        phijk[:, self._nonzero_widx] = np.exp(zjk - self.log_sum_wkLjk(logLjk))
+        zjkmax = np.max(zjk, axis = 1)
+        phijk[:, self._nonzero_widx] = np.exp(zjk - zjkmax.reshape(-1, 1))
+        phijk /= np.sum(phijk, axis = 1).reshape(self._n, 1)
+        #phijk[:, self._nonzero_widx] = np.exp(zjk - self.log_sum_wkLjk(logLjk).reshape(-1,1))
         return phijk, mujk, varjk
