@@ -67,7 +67,7 @@ def ebfit(X, y, sk, wk, binit = None, s2init = 1,
         s2     = (varobj + p * (1 - w[0]) * s2old) / (n + p * (1 - w[0]))
 
         ### Update ELBO / new b
-        b = bbar.copy()
+        b      = bbar.copy()
         elbo   = elbo_py.scalemix(X, y, sk, b, w, s2,
                                   dj = dj, phijk = phijk, mujk = mujk, varjk = varjk, eps = 1e-8)
         outer_elbo_path.append(elbo)

@@ -109,6 +109,16 @@ class PenalizedRegression:
 
 
     @property
+    def theta_path(self):
+        return self._theta_path
+
+
+    @property
+    def coef_path(self):
+        return self._coef_path
+
+
+    @property
     def niter(self):
         if self._method == 'L-BFGS-B':
             return self._fitobj.nit
@@ -150,6 +160,7 @@ class PenalizedRegression:
         self._current_obj = obj
         self._current_s2  = s2
         self._current_prior = wk
+        self._current_theta = b
         return obj, grad
 
 
@@ -204,10 +215,12 @@ class PenalizedRegression:
         in case they are not being optimized.
         _hpath: keeps track of the objective function.
         '''
-        self._hpath  = list()
-        self._s2path = list()
+        self._hpath      = list()
+        self._s2path     = list()
         self._prior_path = list()
-        self._elbo_path = list()
+        self._coef_path  = list()
+        self._theta_path = list()
+        self._elbo_path  = list()
         self._callback_count = 0
         self._obj_call_count = 0
         plr_min = sp_optimize.minimize(self.objective, 
@@ -284,12 +297,14 @@ class PenalizedRegression:
         self._hpath.append(self._current_obj)
         self._s2path.append(self._current_s2)
         self._prior_path.append(self._current_prior)
+        self._theta_path.append(self._current_theta)
         if self._calculate_elbo:
             bopt, wopt, s2opt = self.split_optparams(params)
             wopt /= np.sum(wopt)
             pmash = PenMrASH(self._X, self._y, bopt, np.sqrt(s2opt), wopt, self._sk, dj = self._dj,
                              debug = self._debug, is_prior_scaled = self._is_prior_scaled)
             b  = pmash.shrink_b
+            self._coef_path.append(b)
             elbo = cd_step.elbo(self._X, self._y, self._sk, b, wopt, s2opt, 
                                     dj = self._dj, s2inv = self._v2inv)
             #elbo = elbo_py.scalemix(self._X, self._y, self._sk, b, wopt, s2opt, 
