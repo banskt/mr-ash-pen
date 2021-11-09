@@ -16,13 +16,13 @@ from . import elbo as elbo_py
 
 class PenalizedRegression:
 
-    def __init__(self, method = 'L-BFGS-B', maxiter = 2000, 
+    def __init__(self, method = 'L-BFGS-B', maxiter = 1000, 
                  display_progress = True, tol = 1e-9, options = None,
                  use_intercept = True,
                  is_prior_scaled = False,
                  wtol = 1e-2,
                  witer = 100,
-                 optimize_b = True, optimize_w = True, optimize_s = True, 
+                 optimize_w = True, optimize_s = True, 
                  calculate_elbo = False,
                  call_from_em = False, # just a hack to prevent printing termination info
                  debug = True):
@@ -45,9 +45,26 @@ class PenalizedRegression:
                 self._opts = {'maxiter': maxiter, # Maximum number of iterations
                               'disp': display_progress
                               }
-        self._optimize_b = optimize_b
+        self._hpath  = list()
+        self._elbo_path = list()
+        self._callback_count = 0
+        self._obj_call_count = 0
+        self._current_obj = 0
+        self._final_obj = 0
+        self._b = None
+        self._binit = None
+        self._wk = None
+        self._wkinit = None
+        self._s2 = None
+        self._s2init = None
+        self._theta = None
+        self._intercept = None
+        self._fitobj = None
+        self._niter = 0
         self._optimize_w = optimize_w
         self._optimize_s = optimize_s
+        self._wtol = wtol
+        self._witer = witer
         self._debug = debug
         self._is_prior_scaled = is_prior_scaled
         self._use_intercept = use_intercept
@@ -56,6 +73,7 @@ class PenalizedRegression:
         else:
             self.logger = MyLogger(__name__, level = logging.INFO)
         self._calculate_elbo = calculate_elbo
+        self._v2inv = 0
         self._call_from_em = call_from_em
 
 
@@ -104,11 +122,6 @@ class PenalizedRegression:
 
 
     @property
-    def prior_path(self):
-        return self._prior_path
-
-
-    @property
     def niter(self):
         if self._method == 'L-BFGS-B':
             return self._fitobj.nit
@@ -129,6 +142,8 @@ class PenalizedRegression:
         which parameters are being optimized
         '''
         b, wk, s2 = self.split_optparams(params)
+        if not self._optimize_w: wk = self._wkinit
+        if not self._optimize_s: s2 = self._s2init
         '''
         Get the objective function and gradients
         '''
@@ -149,11 +164,10 @@ class PenalizedRegression:
         self._obj_call_count += 1
         self._current_obj = obj
         self._current_s2  = s2
-        self._current_prior = wk
         return obj, grad
 
 
-    def fit(self, X, y, sk, binit = None, winit = None, s2init = None, unshrink_binit = True):
+    def fit(self, X, y, sk, binit = None, winit = None, s2init = None):
         '''
         Dimensions of the problem
         '''
@@ -174,9 +188,6 @@ class PenalizedRegression:
         '''
         if binit is None:
             binit = np.zeros(p)
-            unshrink_binit = False
-        if unshrink_binit:
-            binit = self.b_to_theta(binit)
         if winit is None:
             winit = self.initialize_mixcoef(k)
         if s2init is None:
@@ -206,7 +217,6 @@ class PenalizedRegression:
         '''
         self._hpath  = list()
         self._s2path = list()
-        self._prior_path = list()
         self._elbo_path = list()
         self._callback_count = 0
         self._obj_call_count = 0
@@ -224,7 +234,11 @@ class PenalizedRegression:
         '''
         self._fitobj = plr_min
         bopt, wopt, s2opt = self.split_optparams(plr_min.x.copy())
-        wopt /= np.sum(wopt)
+        if self._optimize_w:
+            wopt /= np.sum(wopt)
+        else:
+            wopt = winit
+        if not self._optimize_s: s2opt = s2init
         self._theta = bopt
         pmash = PenMrASH(self._X, self._y, bopt, np.sqrt(s2opt), wopt, self._sk, dj = self._dj, 
                          debug = self._debug, is_prior_scaled = self._is_prior_scaled)
@@ -244,29 +258,22 @@ class PenalizedRegression:
     def split_optparams(self, optparams):
         n, p = self._X.shape
         k    = self._sk.shape[0]
-        idx  = 0
-        if self._optimize_b:
-            bj = optparams[:p]. copy()
-            idx += p
-        else:
-            bj = self._binit
+        bj   = optparams[:p]. copy()
         if self._optimize_w:
-            wk = optparams[idx:idx+k].copy()
-            idx += k
+            wk = optparams[p:p+k].copy()
         else:
-            wk = self._wkinit
+            wk = None
         if self._optimize_s:
-            s2 = optparams[idx].copy()
+            s2idx = p + k if self._optimize_w else p
+            s2 = optparams[s2idx].copy()
         else:
-            s2 = self._s2init
+            s2 = None
         return bj, wk, s2
 
 
     def combine_optparams(self, bj, wk, s2):
-        optparams = np.array([])
-        if any([isinstance(x, list) for x in [bj, wk, s2]]):
-            optparams = list()
-        for val, is_included in zip([bj, wk, s2], [self._optimize_b, self._optimize_w, self._optimize_s]): 
+        optparams = bj.copy()
+        for val, is_included in zip([wk, s2], [self._optimize_w, self._optimize_s]): 
             if is_included:
                 if isinstance(val, np.ndarray):
                     optparams = np.concatenate((optparams, val))
@@ -277,38 +284,55 @@ class PenalizedRegression:
         return optparams
 
 
+    def ebfit(self, X, y, sk, binit = None, winit = None, s2init = 1):
+        # Do not optimize w and s2 with penalized regression
+        self._optimize_w = False
+        self._optimize_s = False
+        outer_it = 0
+        bbar = binit
+        wbar = winit
+        while wtol > self._wtol or it < self._witer:
+            # Fit penalized regression for getting bbar
+            self.fit(X, y, sk, binit = bbar, winit = wbar)
+            bbar = self._b
+            # Update wbar
+            NMash = NormalMeansASH(bbar, np.sqrt(s2init), wbar, sk, debug = self._debug)
+            phijk, mujk, varjk = NMash.posterior()
+            wbar_new = np.sum(phijk, axis = 0) / phijk.shape[0]
+            # Tolerance
+            wtol = np.min(np.abs(wbar_new - wbar))
+            wbar = wbar_new.copy()
+            it += 1
+
+        # Set values after convergence
+        self._wk = wbar
+
+
+
     def callback(self, params):
         self._callback_count += 1
         #if self._callback_count == 80:
         #    print (f"Callback 80")
         self._hpath.append(self._current_obj)
         self._s2path.append(self._current_s2)
-        self._prior_path.append(self._current_prior)
         if self._calculate_elbo:
             bopt, wopt, s2opt = self.split_optparams(params)
+            if not self._optimize_w: wopt = self._wkinit
+            if not self._optimize_s: s2opt = self._s2init
             wopt /= np.sum(wopt)
             pmash = PenMrASH(self._X, self._y, bopt, np.sqrt(s2opt), wopt, self._sk, dj = self._dj,
                              debug = self._debug, is_prior_scaled = self._is_prior_scaled)
             b  = pmash.shrink_b
-            elbo = cd_step.elbo(self._X, self._y, self._sk, b, wopt, s2opt, 
-                                    dj = self._dj, s2inv = self._v2inv)
-            #elbo = elbo_py.scalemix(self._X, self._y, self._sk, b, wopt, s2opt, 
-            #                        dj = self._dj, phijk = None, mujk = None, varjk = None, eps = 1e-8)
+            #elbo = cd_step.elbo(self._X, self._y, self._sk, b, wopt, s2opt, 
+            #                        dj = self._dj, s2inv = self._v2inv)
+            elbo = elbo_py.scalemix(self._X, self._y, self._sk, b, wopt, s2opt, 
+                                    dj = self._dj, phijk = None, mujk = None, varjk = None, eps = 1e-8)
             self._elbo_path.append(elbo)
         self.logger.debug(f'Callback iteration {self._callback_count}')
 
 
-    def initialize_mixcoef(self, k, sparsity = 0.8):
+    def initialize_mixcoef(self, k):
         w = np.zeros(k)
-        w[0] = sparsity
-        w[1:(k-1)] = np.repeat((1 - w[0])/(k-1), (k - 2))
+        w[1:(k-1)] = np.repeat(1/(k-1), (k - 2))
         w[k-1] = 1 - np.sum(w)
         return w
-
-
-    def b_to_theta(self, b):
-        n, p = self._X.shape
-        r    = self._y - np.mean(self._y) - np.dot(self._X, b)
-        rj   = r.reshape(n, 1) + self._X * b.reshape(1, p)
-        theta = np.einsum('ij,ij->j', self._X, rj) / self._dj
-        return theta

@@ -2,6 +2,54 @@ import os
 import numpy as np
 import pandas as pd
 
+import rpy2.robjects as robj
+import rpy2.robjects.vectors as rvec
+from rpy2.robjects.packages import importr
+from rpy2.robjects import numpy2ri
+numpy2ri.activate()
+
+def array_reduce(x):
+    ndim = x.ndim
+    if ndim == 1:
+        res = x[0] if x.shape[0] == 1 else x
+    elif ndim == 2:
+        res = x.reshape(-1) if x.shape[1] == 1 else x
+    return res
+
+def list_reduce(x):
+    ndim = len(x)
+    if ndim == 1:
+        return x[0]
+    else:
+        return x
+
+
+def robj2dict_recursive(obj):
+    res = dict()
+    for key in obj.names:
+        #print (key)
+        elem = obj.rx2(key)
+        if isinstance(elem, (rvec.FloatVector, rvec.IntVector)):
+            res[key] = array_reduce(np.array(elem))
+        elif isinstance(elem, rvec.StrVector):
+            res[key] = list_reduce(list(elem))
+        elif isinstance(elem, np.ndarray):
+            res[key] = array_reduce(elem)
+        elif isinstance(elem, rvec.ListVector):
+            res[key] = robj2dict_recursive(elem)
+        elif isinstance(elem, rvec.BoolVector):
+            res[key] = array_reduce(np.array(elem, dtype = bool))
+        elif all(np.array(robj.r['is.null'](elem))) == True:
+            res[key] = None
+        #elif elem == robj.NULL:
+        #    res[key] = None
+    return res
+
+
+def robj2dict(obj):
+    return robj2dict_recursive(obj)
+
+
 def flatten_list(lst):
     return sum(([x] if not isinstance(x, (list, tuple)) else flatten_list(x)
                 for x in lst), [])
