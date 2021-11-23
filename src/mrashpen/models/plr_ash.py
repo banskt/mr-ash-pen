@@ -183,3 +183,26 @@ class PenalizedMrASH:
             nmash = NormalMeansASH(self._b, self._vj, self._wk, self._sk)
         Mb = self.shrinkage_operator(nmash)[0]
         return Mb
+
+
+    def unshrink_b(self, b, theta = None, max_iter = 100, tol = 1e-8):
+        # this is the initial value of theta
+        # default is passed via class initialization
+        # but can be changed here
+        if theta is None:
+            theta = self._b
+
+        # Newton-Raphson iteration
+        for itr in range(max_iter):
+            if self._is_prior_scaled:
+                nmash = NormalMeansASHScaled(theta, self._s, self._wk, self._sk, d = self._dj)
+            else:
+                nmash = NormalMeansASH(theta, self._vj, self._wk, self._sk)
+            Mtheta, Mtheta_bgrad, _, _ = self.shrinkage_operator(nmash)
+            theta_new = theta - (Mtheta - b) / Mtheta_bgrad
+            diff = np.sum(np.square(theta_new - theta))
+            theta = theta_new
+            if diff <= tol:
+                break
+
+        return theta
