@@ -26,17 +26,15 @@ def softmax(x, base = np.exp(1)):
 
 class PenalizedRegression:
 
-    def __init__(self, method = 'L-BFGS-B', maxiter = 2000, 
+    def __init__(self, method = 'L-BFGS-B', maxiter = 2000,
                  display_progress = True, tol = 1e-9, options = None,
                  use_intercept = True,
-                 is_prior_scaled = False,
-                 wtol = 1e-2,
-                 witer = 100,
+                 is_prior_scaled = True,
                  optimize_b = True, optimize_w = True, optimize_s = True, 
                  calculate_elbo = False,
                  call_from_em = False, # just a hack to prevent printing termination info
-                 use_mixsqp = False,
-                 use_softmax = True,
+                 prior_optim_method = 'softmax', # can be softmax or mixsqp
+                 unshrink_method = 'newton-raphson-inversion', # can be newton-raphson-inversion or heuristic
                  debug = True):
         self._method = method
         self._opts   = options
@@ -69,8 +67,10 @@ class PenalizedRegression:
             self.logger = MyLogger(__name__, level = logging.INFO)
         self._calculate_elbo = calculate_elbo
         self._call_from_em = call_from_em
-        self._use_mixsqp = use_mixsqp
-        self._use_softmax = use_softmax
+        self._w_use_mixsqp    = True if prior_optim_method == 'mixsqp' else False
+        self._w_use_softmax   = True if prior_optim_method == 'softmax' else False
+        self._b_use_Minverse  = True if unshrink_method == 'newton-raphson-inversion' else False
+        self._b_use_heuristic = True if unshrink_method == 'heuristic' else False
 
 
     @property
@@ -80,12 +80,12 @@ class PenalizedRegression:
 
     @property
     def coef(self):
-        return self._b
+        return self._coef
 
 
     @property
     def prior(self):
-        return self._wk
+        return self._prior
 
     @property
     def residual_var(self):
@@ -151,15 +151,21 @@ class PenalizedRegression:
     def objective(self, params):
         '''
         which parameters are being optimized
+        b  -> theta 
+        ak -> parameters controlling mixture coefficients wk
+              w = ak / sum(ak)  | for mixsqp
+              w = softmax(ak)   | for softmax
+        s2 -> residual variance
         '''
         b, ak, s2 = self.split_optparams(params)
+        # do not scale ak to prior if using mixsqp
         wk = ak.copy()
-        if self._use_softmax:
+        if self._w_use_softmax:
             wk = softmax(ak, base = self._softmax_base)
         '''
         Get the objective function and gradients
         '''
-        pmash = PenMrASH(self._X, self._y, b, np.sqrt(s2), wk, self._sk, dj = self._dj, 
+        pmash = PenMrASH(self._X, self._y, b, np.sqrt(s2), wk, self._sk, dj = self._dj,
                          debug = self._debug, is_prior_scaled = self._is_prior_scaled)
         obj = pmash.objective
         bgrad, wgrad, s2grad = pmash.gradients
@@ -168,11 +174,11 @@ class PenalizedRegression:
         Maximum p + k + 1 parameters: b, wk, s2
         '''
         if self._optimize_w:
-            if self._use_mixsqp:
+            if self._w_use_mixsqp:
                 lagrng = 1
                 obj   += lagrng * np.sum(wk)
                 wgrad += lagrng
-            elif self._use_softmax:
+            elif self._w_use_softmax:
                 k      = wk.shape[0]
                 akjac  = np.log(self._softmax_base) * wk.reshape(-1, 1) * (np.eye(k) - wk)
                 wgrad  = np.sum(wgrad * akjac, axis = 1)
@@ -181,19 +187,19 @@ class PenalizedRegression:
         Book-keeping
         '''
         self._obj_call_count += 1
-        self._current_obj = obj
-        self._current_s2  = s2
-        self._current_prior = wk
+        self._current_obj   = obj
+        self._current_s2    = s2
+        self._current_ak    = ak
         self._current_theta = b
         return obj, grad
 
 
-    def initialize_params(self, binit, winit, s2init, should_unshrink):
+    def initialize_params(self, binit, winit, s2init, inv_binit, is_b_coef):
         n, p = self._X.shape
         k    = self._sk.shape[0]
         '''
         if binit is not given, use blind initialization
-        if binit is given, could either be true coefficients or theta
+        if binit is given, could be either b or theta
         '''
         if binit is None:
             theta_init = np.zeros(p)
@@ -201,30 +207,40 @@ class PenalizedRegression:
             if winit  is None: winit  = self.initialize_mixcoef(k)
             should_unshrink = False
         else:
-            ### binit are coefficients, theta = M^{-1}(binit)
-            if should_unshrink:
+            if is_b_coef:
+                ### binit are coefficients, theta = M^{-1}(binit)
                 if s2init is None: s2init = np.var(self._y - np.dot(self._X, binit))
                 if winit  is None: winit  = mix_gauss.emfit(binit, self._sk)
-                pmash = PenMrASH(self._X, self._y, np.zeros(p), np.sqrt(s2init), winit, self._sk, dj = self._dj,
-                                 debug = self._debug, is_prior_scaled = self._is_prior_scaled)
-                theta_init = pmash.unshrink_b(binit)
-            ### binit = theta, therefore coef = M(binit)
-            ### if theta_init is given, we also expect winit and s2init to be given
-            ### TO-DO: find better winit and s2init if they are not given
+                if self._b_use_Minverse:
+                    if inv_binit is None:
+                        inv_binit = np.zeros(p)
+                    pmash = PenMrASH(self._X, self._y, inv_binit, np.sqrt(s2init), winit, self._sk, dj = self._dj,
+                                     debug = self._debug, is_prior_scaled = self._is_prior_scaled)
+                    theta_init = pmash.unshrink_b(binit)
+                elif self._b_use_heuristic:
+                    theta_init = self.b_to_theta(binit)
             else:
+                ### binit = theta, therefore coef = M(binit)
+                ### if theta_init is given, we also expect winit and s2init to be given
+                ### TO-DO: find better winit and s2init if they are not given
                 theta_init = binit.copy()
                 if winit  is None: winit  = self.initialize_mixcoef(k)
                 if s2init is None: s2init = np.var(self._y)
         '''
-        Finally, invert the softmax to obtain the ak
+        Finally, obtain the ak from mixture coefficients
         '''
-        if self._optimize_w and self._use_softmax:
-            winit = np.log(winit + 1e-8) / np.log(self._softmax_base)
-            winit += - np.min(winit)
-        return theta_init, winit, s2init
+        if self._w_use_mixsqp:
+            akinit = winit.copy()
+        elif self._w_use_softmax:
+            akinit = np.log(winit + 1e-8) / np.log(self._softmax_base)
+        return theta_init, akinit, s2init
 
 
-    def fit(self, X, y, sk, binit = None, winit = None, s2init = None, unshrink_binit = True, softmax_base = np.exp(1)):
+    def fit(self, X, y, sk, binit = None, winit = None, s2init = None,
+            inv_binit     = None,    # could be used for initializing theta for Minverse
+            is_binit_coef = True,    # set this False when initializing with theta
+            softmax_base = np.exp(1) # set this to large values for faster shrinkage of sparsity
+            ):
         '''
         Dimensions of the problem
         '''
@@ -244,29 +260,29 @@ class PenalizedRegression:
         '''
         Initialization
         '''
-        binit, winit, s2init = self.initialize_params(binit, winit, s2init, unshrink_binit)
+        binit, akinit, s2init = self.initialize_params(binit, winit, s2init, inv_binit, is_binit_coef)
         self._binit  = binit
-        self._wkinit = winit
+        self._akinit = akinit
         self._s2init = s2init
         '''
         Combine all parameters
         '''
-        params = self.combine_optparams(binit, winit, s2init)
+        params = self.combine_optparams(binit, akinit, s2init)
         '''
         Bounds for optimization
         '''
         bbounds = [(None, None) for x in binit]
-        wbounds = [(1e-8, None) for x in winit]
-        if self._optimize_w and self._use_softmax: wbounds = [(None, None) for x in winit]
+        abounds = [(1e-8, None) for x in akinit]
+        if self._w_use_softmax: abounds = [(None, None) for x in akinit]
         s2bound = [(1e-8, None)]
         # bounds can be used with L-BFGS-B.
         bounds = None
         if self._method == 'L-BFGS-B':
-            bounds  = self.combine_optparams(bbounds, wbounds, s2bound)
+            bounds  = self.combine_optparams(bbounds, abounds, s2bound)
         '''
-        We need to pass s2init and winit as separate arguments
+        We need to pass s2init and akinit as separate arguments
         in case they are not being optimized.
-        _hpath: keeps track of the objective function.
+        hpath: keeps track of the objective function.
         '''
         self._hpath      = list()
         self._s2path     = list()
@@ -289,13 +305,13 @@ class PenalizedRegression:
         Return values
         '''
         self._fitobj = plr_min
-        bopt, wopt, s2opt = self.split_optparams(plr_min.x.copy())
-        wk    = self.wparam_to_mixcoef(wopt)
-        coef  = self.theta_to_coef(bopt, wk, s2opt)
+        bopt, akopt, s2opt = self.split_optparams(plr_min.x.copy())
+        prior = self.wparam_to_mixcoef(akopt)
+        coef  = self.theta_to_coef(bopt, prior, s2opt)
         self._theta = bopt
-        self._b  = coef
-        self._wk = wk
-        self._s2 = s2opt
+        self._coef  = coef
+        self._prior = prior
+        self._s2    = s2opt
         '''
         Debug logging
         '''
@@ -316,22 +332,22 @@ class PenalizedRegression:
         else:
             bj = self._binit
         if self._optimize_w:
-            wk = optparams[idx:idx+k].copy()
+            ak = optparams[idx:idx+k].copy()
             idx += k
         else:
-            wk = self._wkinit
+            ak = self._akinit
         if self._optimize_s:
             s2 = optparams[idx].copy()
         else:
             s2 = self._s2init
-        return bj, wk, s2
+        return bj, ak, s2
 
 
-    def combine_optparams(self, bj, wk, s2):
+    def combine_optparams(self, bj, ak, s2):
         optparams = np.array([])
-        if any([isinstance(x, list) for x in [bj, wk, s2]]):
+        if any([isinstance(x, list) for x in [bj, ak, s2]]):
             optparams = list()
-        for val, is_included in zip([bj, wk, s2], [self._optimize_b, self._optimize_w, self._optimize_s]): 
+        for val, is_included in zip([bj, ak, s2], [self._optimize_b, self._optimize_w, self._optimize_s]): 
             if is_included:
                 if isinstance(val, np.ndarray):
                     optparams = np.concatenate((optparams, val))
@@ -344,17 +360,17 @@ class PenalizedRegression:
 
     def callback(self, params):
         self._callback_count += 1
-        #if self._callback_count == 80:
-        #    print (f"Callback 80")
+        # The objective function can be called multiple times in between callbacks
+        # We append to paths only during callbacks
         self._hpath.append(self._current_obj)
         self._s2path.append(self._current_s2)
-        self._prior_path.append(self._current_prior)
+        self._prior_path.append(self._current_ak)
         self._theta_path.append(self._current_theta)
         if self._calculate_elbo:
-            bopt, wopt, s2opt = self.split_optparams(params)
-            wopt  = self.wparam_to_mixcoef(wopt)
-            coef  = self.theta_to_coef(bopt, wopt, s2opt)
-            elbo  = cd_step.elbo(self._X, self._y, self._sk, coef, wopt, s2opt, 
+            bopt, akopt, s2opt = self.split_optparams(params)
+            wk    = self.wparam_to_mixcoef(akopt)
+            coef  = self.theta_to_coef(bopt, wk, s2opt)
+            elbo  = cd_step.elbo(self._X, self._y, self._sk, coef, wk, s2opt, 
                                     dj = self._dj, s2inv = self._v2inv)
             #elbo = elbo_py.scalemix(self._X, self._y, self._sk, coef, wopt, s2opt, 
             #                        dj = self._dj, phijk = None, mujk = None, varjk = None, eps = 1e-8)
@@ -371,13 +387,12 @@ class PenalizedRegression:
         return w
 
 
-    def wparam_to_mixcoef(self, wopt):
-        wk = wopt.copy()
-        if self._optimize_w:
-            if self._use_mixsqp:
-                wk /= np.sum(wk)
-            elif self._use_softmax:
-                wk = softmax(wk, base = self._softmax_base)
+    def wparam_to_mixcoef(self, ak):
+        wk = ak.copy()
+        if self._w_use_mixsqp:
+            wk = ak / np.sum(ak)
+        elif self._w_use_softmax:
+            wk = softmax(ak, base = self._softmax_base)
         return wk
 
 
