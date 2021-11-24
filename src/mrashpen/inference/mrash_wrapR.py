@@ -53,7 +53,10 @@ class MrASHR:
 
     @property
     def obj_path(self):
-        return self._fitdict['varobj']
+        _obj_path = self._fitdict['varobj']
+        if not isinstance(_obj_path, list) or not isinstance(_obj_path, np.ndarray):
+            _obj_path = list([_obj_path])
+        return _obj_path
 
 
     @property
@@ -68,7 +71,10 @@ class MrASHR:
 
     @property
     def elbo_path(self):
-        return self._fitdict['varobj']
+        _elbo_path = self._fitdict['varobj']
+        if not isinstance(_elbo_path, list) or not isinstance(_elbo_path, np.ndarray):
+            _elbo_path = list([_elbo_path])
+        return _elbo_path
 
 
     def array_reduce(self, x):
