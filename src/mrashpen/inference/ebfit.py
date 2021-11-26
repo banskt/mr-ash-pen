@@ -77,13 +77,16 @@ def ebfit(X, y, sk,
         '''
         New coefficients
         '''
-        plr.fit(X, y, sk, binit = bbar, winit = wk, s2init = s2, inv_binit = theta)
-        theta      = plr.theta
+        is_step_one = True if itr == 0 else False
+        bold = binit if is_step_one else theta
+        plr.fit(X, y, sk, binit = bold, winit = wk, s2init = s2, inv_binit = theta, is_binit_coef = is_step_one)
+        theta = plr.theta
         if calculate_elbo:
             elbo_path += plr.elbo_path
         obj_path  += plr.obj_path
         '''
         Empirical Bayes update for wk and s2, also advances coef one step
+        but we drop that advance
         '''
         bbar, wk, s2, elbo = ws_one_step(X, y, plr.coef, plr.prior, plr.residual_var, sk, dj)
         outer_elbo_path.append(elbo)
