@@ -4,6 +4,7 @@ np.random.seed(200)
 
 from mrashpen.models.plr_ash import PenalizedMrASH as PenMrASH
 from mrashpen.models.normal_means_ash import NormalMeansASH
+from mrashpen.utils import unittest_tester as tester
 from mrashpen.utils.logs import MyLogger
 
 mlogger = MyLogger(__name__)
@@ -88,6 +89,6 @@ class TestPLRObjective(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    tester.main()
 
 
