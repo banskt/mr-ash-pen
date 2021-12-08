@@ -15,6 +15,8 @@ from ..utils.logs              import MyLogger
 from . import coordinate_descent_step as cd_step
 from . import elbo as elbo_py
 
+from libmrashpen_plr_mrash import plr_mrash as flib_penmrash
+
 
 def softmax(x, base = np.exp(1)):
     if base is not None:
@@ -35,6 +37,7 @@ class PenalizedRegression:
                  call_from_em = False, # just a hack to prevent printing termination info
                  prior_optim_method = 'softmax', # can be softmax or mixsqp
                  unshrink_method = 'newton-raphson-inversion', # can be newton-raphson-inversion or heuristic
+                 function_call = 'fortran',
                  debug = True):
         self._method = method
         self._opts   = options
@@ -71,6 +74,7 @@ class PenalizedRegression:
         self._w_use_softmax   = True if prior_optim_method == 'softmax' else False
         self._b_use_Minverse  = True if unshrink_method == 'newton-raphson-inversion' else False
         self._b_use_heuristic = True if unshrink_method == 'heuristic' else False
+        self._f_use_python    = True if function_call == 'python' else False
 
 
     @property
@@ -148,6 +152,19 @@ class PenalizedRegression:
         return self._fitobj
 
 
+    def pmash_obj_gradients(self, b, sigma, wk):
+        if self._f_use_python:
+            pmash = PenMrASH(self._X, self._y, b, sigma, wk, self._sk, dj = self._dj,
+                             debug = self._debug, is_prior_scaled = self._is_prior_scaled)
+            obj = pmash.objective
+            bgrad, wgrad, s2grad = pmash.gradients
+        else:
+            djinv = 1 / self._dj
+            obj, bgrad, wgrad, s2grad \
+                = flib_penmrash.objective_gradients(self._X, self._y, b, sigma, wk, self._sk, djinv)
+        return obj, bgrad, wgrad, s2grad
+
+
     def objective(self, params):
         '''
         which parameters are being optimized
@@ -165,10 +182,7 @@ class PenalizedRegression:
         '''
         Get the objective function and gradients
         '''
-        pmash = PenMrASH(self._X, self._y, b, np.sqrt(s2), wk, self._sk, dj = self._dj,
-                         debug = self._debug, is_prior_scaled = self._is_prior_scaled)
-        obj = pmash.objective
-        bgrad, wgrad, s2grad = pmash.gradients
+        obj, bgrad, wgrad, s2grad = self.pmash_obj_gradients(b, np.sqrt(s2), wk)
         '''
         Combine gradients of all parameters for optimization
         Maximum p + k + 1 parameters: b, wk, s2

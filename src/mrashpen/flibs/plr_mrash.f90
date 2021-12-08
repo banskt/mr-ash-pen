@@ -70,11 +70,11 @@ contains
                                   lambdaj, l_bgrad, l_wgrad, l_s2grad)
         call fill_real_vector(XMb, d_zero)
         call dgemv('N', n, p, d_one, X, n, Mb, 1, d_zero, XMb, 1)
-        r    = y + XMb ! vector addition, F90
+        r    = y - XMb ! vector addition, F90
         rTr  = ddot(n, r, 1, r, 1)
-        call print_vector(r, n)
-        obj  = (d_half * rTr / s2) / sum(lambdaj)
-        obj  = obj + d_half * (n - p) * (log2pi + log(s2))
+!        call print_vector(r, n)
+        obj  = (d_half * rTr / s2) + sum(lambdaj)                                    &
+               + d_half * (n - p) * (log2pi + log(s2))
 !        write (6, *) "Objective", obj
 !
 !       ========================
@@ -130,7 +130,7 @@ contains
         p     = size(b)
         k     = size(lml_bd_wd, 2)
         allocate (v_one(p), bvar_mat(p, k))
-        call fill_real_vector(v_one, d_zero)
+        call fill_real_vector(v_one, d_one)
         bvar_mat = duplicate_columns(bvar, k)
 !    
 !       calculation
