@@ -1,6 +1,7 @@
-module nmash_scaled
+module normal_means_ash_scaled
     use env_precision
     use global_parameters
+    use futils
     implicit none
 !    private
 !    public initialize, log_sum_exponent2d
@@ -13,163 +14,136 @@ module nmash_scaled
 !   wk  vector of length k  | prior mixture proportions 
 !   sk  vector of length k  | prior mixture standard deviations
 !   dj  vector of length n | a scaling vector for s
-    real(r8k), allocatable :: y(:), wk(:), sk(:), dj(:)
-    integer, allocatable   :: nzwk_idx(:)
-    real(r8k) :: stddev
-    integer(i4k) :: ndim, ncomp
 
 contains
 
-    subroutine initialize(yinit, sinit, wkinit, skinit, djinit, n, k)
-        integer(i4k), intent(in) :: n, k
-        real(r8k), intent(in)    :: sinit
-        real(r8k), intent(in)    :: yinit(n), djinit(n)
-        real(r8k), intent(in)    :: wkinit(k), skinit(k)
-        integer(i4k) :: i, nzwk_count
-!       set the global variables of this module
-        ndim   = n
-        ncomp  = k
-        stddev = sinit
-        allocate (y(ndim), dj(ndim))
-        allocate (wk(ncomp), sk(ncomp))
-        do i = 1, ndim
-            y(i) = yinit(i)
-            dj(i) = djinit(i)
-        end do
-        nzwk_count = 0
-        do i = 1, ncomp
-            sk(i) = skinit(i)
-            wk(i) = wkinit(i)
-            if (wk(i) .ne. d_zero) then
-                nzwk_count = nzwk_count + 1
-            end if
-        end do
-        allocate (nzwk_idx(nzwk_count))
-        do i = 1, ncomp
-            if (wk(i) .ne. d_zero) then
-                nzwk_idx(i) = 1
-            else
-                nzwk_idx(i) = 0
-            end if
-        end do
-    end subroutine
+    subroutine normal_means_ash_lml(ndim, ncomp, y, stddev, wk, sk, djinv,       &
+                                    lml, lml_bd, lml_wd, lml_s2d,                &
+                                    lml_bd_bd, lml_bd_wd, lml_bd_s2d)
+        integer(i4k), intent(in) :: ndim, ncomp
+        real(r8k), intent(in)    :: y(ndim), djinv(ndim)
+        real(r8k), intent(in)    :: stddev
+        real(r8k), intent(in)    :: wk(ncomp), sk(ncomp)
 
+        real(r8k), dimension(ndim), intent(out) :: lml
+        real(r8k), dimension(ndim), intent(out) :: lml_bd,    lml_s2d
+        real(r8k), dimension(ndim), intent(out) :: lml_bd_bd, lml_bd_s2d
+        real(r8k), dimension(ndim, ncomp), intent(out) :: lml_wd
+        real(r8k), dimension(ndim, ncomp), intent(out) :: lml_bd_wd
 
-!    function calculate_logML() result(logML)
-!        real(r8k) :: logML(ndim)
-!        real(r8k) :: logLjk(ndim, ncomp), t1(ndim)
-!        integer(i4k) :: i
-!
-!        call calculate_logLjk(0, logLjk)
-!        write (6, *) "logLjk =>"
-!        call print_array2d(logLjk, ndim, ncomp)
-!        write (6, *) "wk =>"
-!        call print_vector(wk, ncomp)
-!        t1 = log_sum_wkLjk(wk, logLjk, nzwk_idx)
-!        write (6, *) "log(sum(wk * Ljk)) =>"
-!        call print_vector(t1, ndim)
-!        do i = 1, ndim
-!            logML(i) = - d_half * log2pi + t1(i)
-!        end do
-!    end function
+!       local variables
+        real(r8k), dimension(ndim, ncomp) :: ljk0, ljk1, ljk2
+        real(r8k), dimension(ndim, ncomp) :: v2pk, logv2pk
+        real(r8k), dimension(ndim, ncomp) :: lml_krep, y_krep, lml_bd_krep
+        real(r8k), dimension(ndim)        :: lsum_wl0, lsum_wl1, lsum_wl2
+        real(r8k), dimension(ndim)        :: lsum_wl1v2, lsum_wl2v2
+        real(r8k), dimension(ndim)        :: lml_bd_over_y, vec1
+        real(r8k), dimension(ndim)        :: y2
+        real(r8k)                         :: s2, sk2
+        integer, dimension(ncomp)         :: nzwk_idx
+        integer                           :: i, j
+
+        s2 = stddev ** d_two
+        y2 = y ** d_two
+
+        call fill_real_matrix(v2pk, d_zero)
+        do j = 1, ncomp
+            sk2 = sk(j) ** 2
+            do i = 1, ndim
+                v2pk(i, j) = sk2 + djinv(i)
+            end do
+        end do
+        nzwk_idx = get_nonzero_index_vector(wk)
+
+        call fill_real_matrix(ljk0, d_zero)
+        call fill_real_matrix(ljk1, d_zero)
+        call fill_real_matrix(ljk2, d_zero)
+        call calculate_logLjk(ndim, ncomp, y, s2, v2pk,                          &
+                              ljk0, ljk1, ljk2)
+!       sum over wk to obtain vectors of size ndim
+        lsum_wl0   = log_sum_wkLjk(wk, ljk0, nzwk_idx)
+        lsum_wl1   = log_sum_wkLjk(wk, ljk1, nzwk_idx)
+        lsum_wl2   = log_sum_wkLjk(wk, ljk2, nzwk_idx)
+        logv2pk    = log(v2pk)
+        lsum_wl1v2 = log_sum_wkLjk(wk, ljk1 + logv2pk, nzwk_idx)
+        lsum_wl2v2 = log_sum_wkLjk(wk, ljk2 + logv2pk, nzwk_idx)
+
+!       ========================
+!       Calculate L (log marginal likelihood)
+!       ========================
+        lml = - d_half * log2pi + lsum_wl0
+
+!       ========================
+!       Calculate derivatives of L with respect to b, w and s2
+!       ========================
+        lml_krep      = duplicate_columns(lml, ncomp)
+        lml_bd_over_y = - exp(lsum_wl1 - lsum_wl0)
+        lml_bd        = y * lml_bd_over_y
+        lml_wd        = exp(- d_half * log2pi + ljk0 - lml_krep)
+        lml_s2d       = ((y2 / s2) * exp(lsum_wl1   - lsum_wl0)                  &
+                                   - exp(lsum_wl1v2 - lsum_wl0)) * d_half
+
+!       ========================
+!       Calculate derivatives of L' with respect to b, w and s2
+!       ========================
+        y_krep        = duplicate_columns(y, ncomp)
+        lml_bd_krep   = duplicate_columns(lml_bd, ncomp)
+        lml_bd_bd     = lml_bd_over_y + y2 * exp(lsum_wl2 - lsum_wl0) - (lml_bd * lml_bd)
+        lml_bd_wd     = - lml_wd * (y_krep * exp(ljk1 - ljk0) + lml_bd_krep)
+        vec1          = - (y2 / s2) * exp(lsum_wl2   - lsum_wl0)                 &
+                                + 3 * exp(lsum_wl2v2 - lsum_wl0)
+        lml_bd_s2d    = (d_half * y * vec1) - (lml_bd * lml_s2d)
+    end subroutine normal_means_ash_lml
+
+    subroutine calculate_logLjk(p, k, y, sigma2, v2pk,                           &
+                                logLjk0, logLjk1, logLjk2)
+        integer(i4k), intent(in) :: p, k
+        real(r8k), intent(in)    :: y(p)
+        real(r8k), intent(in)    :: sigma2
+        real(r8k), intent(in)    :: v2pk(p, k)
+        real(r8k), dimension(p, k), intent(out) :: logLjk0, logLjk1, logLjk2
+!       local variables
+        integer(i4k) :: i, j
+        real(r8k)    :: a0, a1, a2
+        real(r8k)    :: logs2, t1, t2
+
+        logs2 = log(sigma2)
+        a0 = d_one
+        a1 = 3 * d_one
+        a2 = 5 * d_one
+        do j = 1, k
+            do i = 1, p
+                t1   = logs2 + log(v2pk(i, j))
+                t2   = (y(i) * y(i)) / (v2pk(i, j) * sigma2)
+                logLjk0(i, j) = - d_half * (a0 * t1 + t2)
+                logLjk1(i, j) = - d_half * (a1 * t1 + t2)
+                logLjk2(i, j) = - d_half * (a2 * t1 + t2)
+            end do
+        end do
+    end subroutine calculate_logLjk
 
 
     function log_sum_wkLjk(wk, logLjk, nzwk_idx) result(sumwL)
-        integer, intent(in)   :: nzwk_idx(:)
-        real(r8k), intent(in) :: wk(:), logLjk(:,:)
-        real(r8k)             :: sumwL(size(logLjk, 1))
+        integer, intent(in)    :: nzwk_idx(:)
+        real(r8k), intent(in)  :: wk(:), logLjk(:,:)
+        real(r8k)              :: sumwL(size(logLjk, 1))
         real(r8k), allocatable :: z(:, :)
-        integer(i4k) :: nk, nn, nz, i, j, k
+        integer(i4k) :: nk, np, nz, j, k
+        np = size(logLjk, 1)
+        nk = size(wk)
         nz = sum(nzwk_idx)
-        allocate(z(ndim, nz))
+        allocate(z(np, nz))
         k = 0
-        do j = 1, ncomp
+        do j = 1, nk
             if (nzwk_idx(j) .eq. 1) then
                 k = k + 1
-                do i = 1, ndim
-                    z(i, k) = logLjk(i, j) + log(wk(j))
-                end do
+                z(:, k) = logLjk(:, j) + log(wk(j))
             end if
         end do
-        write (6, *) "Dimensions of z", ndim, nz
-        write (6, *) "log(wk) + logLjk =>"
-        call print_vector(z, nz)
+!        write (6, *) "Dimensions of z", np, nz
+!        write (6, *) "log(wk) + logLjk =>"
+!        call print_vector(z, nz)
         sumwL = log_sum_exponent2d(z)
     end function
 
-
-    function log_sum_exponent2d(z) result(zsum)
-!        integer{i4k), intent(in) :: nrow
-        real(r8k), intent(in)  :: z(:,:)
-        real(r8k)              :: zsum(size(z, 1))
-        real(r8k), allocatable :: zmax(:)
-        integer(i4k) :: i, j, nrow, ncol
-        nrow = size(z, 1)
-        ncol = size(z, 2)
-        allocate(zmax(nrow))
-        do i = 1, nrow
-            zsum(i) = d_zero
-            zmax(i) = d_zero
-        end do
-        do j = 1, ncol
-            do i = 1, nrow
-                if (z(i, j) .gt. zmax(i)) then
-                    zmax(i) = z(i, j)
-                end if
-            end do
-        end do
-        do j = 1, ncol
-            do i = 1, nrow
-                zsum(i) = zsum(i) + exp(z(i, j) - zmax(i))
-            end do
-        end do
-        do i = 1, nrow
-            zsum(i) = log(zsum(i)) + zmax(i)
-        end do
-    end function
-
-
-!    subroutine calculate_logLjk(order, logLjk)
-!        integer(i4k), intent(in) :: order
-!        real(r8k), intent(out)   :: logLjk(ndim, ncomp)
-!!       local variables
-!        integer(i4k) :: i, j
-!        real(r8k)    :: s2, logs2, sk2, v2jk, t1, t2, a1
-!
-!        select case (order)
-!            case (0)
-!                a1 = d_one
-!            case (1)
-!                a1 = 3 * d_one
-!            case (2)
-!                a1 = 5 * d_one
-!        end select
-!
-!        s2 = stddev * stddev
-!        logs2 = log(s2)
-!        do j = 1, ncomp
-!            sk2 = sk(j) ** d_two
-!            do i = 1, ndim
-!                v2jk = sk2 + (d_one / dj(i))
-!                t1   = logs2 + log(v2jk)
-!                t2   = (y(i) * y(i)) / (v2jk * s2)
-!                logLjk(i, j) = - d_half * (a1 * t1 + t2)
-!            end do
-!        end do
-!    end subroutine calculate_logLjk
-
-end module nmash_scaled
-
-! subroutine a_plus_matB(a, b, m, n, res)
-!     integer(i4k), intent(in) :: m, n
-!     real(r8k), intent(in)    :: a
-!     real(r8k), intent(in)    :: b(m, n)
-!     real(r8k), intent(out)   :: res(m, n)
-!     integer(i4k)             :: i, j
-!     do j = 1, n
-!         do i = 1, m
-!             res(i, j) = b(i, j) + a
-!         end do
-!     end do
-! end subroutine a_plus_matB
-! 
+end module normal_means_ash_scaled
