@@ -274,7 +274,6 @@ class PenalizedRegression:
         '''
         Initialization
         '''
-        print ("inv_binit is", inv_binit)
         binit, akinit, s2init = self.initialize_params(binit, winit, s2init, inv_binit, is_binit_coef)
         self._binit  = binit
         self._akinit = akinit
