@@ -7,12 +7,12 @@ module plr_mrash
 !
 contains
 !
-   subroutine objective_gradients(n, p, X, y, b, stddev, k, wk, sk, djinv,           &
+   subroutine plr_obj_grad_shrinkop(n, p, X, y, b, s2, k, wk, sk, djinv,            &
                                    obj, bgrad, wgrad, s2grad)
         implicit none
         integer(i4k), intent(in)   :: n, p, k
         real(r8k), intent(in)      :: X(n, p), y(n), b(p)
-        real(r8k), intent(in)      :: stddev
+        real(r8k), intent(in)      :: s2
         real(r8k), intent(in)      :: wk(k), sk(k)
         real(r8k), intent(in)      :: djinv(p)
         real(r8k), intent(out)     :: obj
@@ -34,13 +34,12 @@ contains
         real(r8k), dimension(k)    :: l_wgrad
 !       local variable (others)
         real(r8k), dimension(n)    :: r, XMb
-        real(r8k)                  :: s2, rTr
+        real(r8k)                  :: rTr
         real(r8k), dimension(p)    :: bvar, rTX
         real(r8k), dimension(k)    :: v1 !, v2
 !
 !        integer :: i, j
 !
-        s2 = stddev ** d_two
         bvar = s2 * djinv
 !
 !       ========================
@@ -54,7 +53,7 @@ contains
         call fill_real_vector(lml_bd_bd, d_zero)
         call fill_real_matrix(lml_bd_wd, d_zero)
         call fill_real_vector(lml_bd_s2d, d_zero)
-        call normal_means_ash_lml(p, k, b, stddev, wk, sk, djinv,                    &
+        call normal_means_ash_lml(p, k, b, s2, wk, sk, djinv,                        &
                                   lml, lml_bd, lml_wd, lml_s2d,                      &
                                   lml_bd_bd, lml_bd_wd, lml_bd_s2d)
 !
@@ -105,7 +104,7 @@ contains
 !        write (6, *) "subroutine s2grad"
 !        write (6, *) s2grad
 
-    end subroutine objective_gradients
+    end subroutine plr_obj_grad_shrinkop
 !
 !
     subroutine plr_shrinkage_operator(b, bvar, djinv,                                &

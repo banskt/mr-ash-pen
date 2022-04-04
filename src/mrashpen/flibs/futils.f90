@@ -14,6 +14,15 @@ contains
         end do
     end subroutine fill_real_vector
 
+    subroutine fill_integer_vector(x, a)
+        integer(i4k), intent(inout) :: x(:)
+        integer(i4k) :: a
+        integer(i4k) :: i
+        do i = 1, size(x)
+            x(i) = a
+        end do
+    end subroutine fill_integer_vector
+
     subroutine fill_real_matrix(x, a)
         real(r8k), intent(inout) :: x(:, :)
         real(r8k) :: a
@@ -89,6 +98,77 @@ contains
             end if
         end do
     end function get_nonzero_index_vector
+
+    function softmax(x, logbase) result(w)
+!
+!   Given DOUBLE PRECISION array a(k) and 
+!         DOUBLE PRECISION variable smlb = log(b), 
+!
+!   calculate DOUBLE PRECISION array w(k):
+!
+!       w_k = b^(a_k) / sum(b^(a_k))
+!   
+!   Note if log(b) = 1
+!        then b = exp(1) and w_k = exp(a_k) / sum(exp(a_k))
+!        if log(b) = z
+!        then b = exp(z) and w_k = exp(z * a_k) / sum(exp(z * a_k))
+!
+        real(r8k), intent(in)  :: x(:)
+        real(r8k), intent(in)  :: logbase
+        real(r8k)              :: bx(size(x)), w(size(x))
+        real(r8k)              :: bxmax, wsum
+        integer(i4k)           :: i
+        do i = 1, size(x)
+            bx(i) = x(i) * logbase
+        end do
+        bxmax = maxval(bx)
+        do i = 1, size(x)
+            w(i) = exp(bx(i) - bxmax)
+        end do
+        wsum = sum(w)
+        do i = 1, size(x)
+            w(i) = w(i) / wsum
+        end do
+    end function softmax
+
+    function softmax_jacobian(w, logbase) result(jac)
+        real(r8k), intent(in)  :: w(:)
+        real(r8k), intent(in)  :: logbase
+        real(r8k)              :: jac(size(w), size(w))
+        integer(i4k)           :: i, j
+        real(r8k)              :: wj
+        do j = 1, size(w)
+            wj = w(j)
+            jac(j, j) = wj * (1 - wj) * logbase
+            do i = 1, size(w)
+                if (i /= j) then
+                    jac(i, j) = - w(i) * wj * logbase
+                end if
+            end do
+        end do
+    end function softmax_jacobian
+
+    subroutine softmax_gradient(n, w, smlb, dfdw, dfda)
+!   
+!   Let w = softmax(a, smlb)
+!   For any function f(w), this subroutine calculates
+!   df/da given df/dw, w and smlb
+!
+        implicit none
+        integer(i4k)  :: n
+        real(r8k)     :: dfdw(n), dfda(n)
+        real(r8k)     :: w(n)
+        real(r8k)     :: smlb
+        real(r8k)     :: ajac(n, n)
+        integer(i4k)  :: i, j
+        ajac = softmax_jacobian(w, smlb)
+        call fill_real_vector(dfda, d_zero)
+        do j = 1, n
+            do i = 1, n
+                dfda(j) = dfda(j) + dfdw(i) * ajac(i, j)
+            end do
+        end do
+    end subroutine
 
     subroutine print_array2d(x, m, n)
 !

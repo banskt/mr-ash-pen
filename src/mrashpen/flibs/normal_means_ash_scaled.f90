@@ -17,12 +17,12 @@ module normal_means_ash_scaled
 
 contains
 
-    subroutine normal_means_ash_lml(ndim, ncomp, y, stddev, wk, sk, djinv,       &
+    subroutine normal_means_ash_lml(ndim, ncomp, y, s2, wk, sk, djinv,           &
                                     lml, lml_bd, lml_wd, lml_s2d,                &
                                     lml_bd_bd, lml_bd_wd, lml_bd_s2d)
         integer(i4k), intent(in) :: ndim, ncomp
         real(r8k), intent(in)    :: y(ndim), djinv(ndim)
-        real(r8k), intent(in)    :: stddev
+        real(r8k), intent(in)    :: s2
         real(r8k), intent(in)    :: wk(ncomp), sk(ncomp)
 
         real(r8k), dimension(ndim), intent(out) :: lml
@@ -39,11 +39,11 @@ contains
         real(r8k), dimension(ndim)        :: lsum_wl1v2, lsum_wl2v2
         real(r8k), dimension(ndim)        :: lml_bd_over_y, vec1
         real(r8k), dimension(ndim)        :: y2
-        real(r8k)                         :: s2, sk2
+        real(r8k)                         :: sk2
         integer, dimension(ncomp)         :: nzwk_idx
         integer                           :: i, j
 
-        s2 = stddev ** d_two
+        !s2 = stddev ** d_two
         y2 = y ** d_two
 
         call fill_real_matrix(v2pk, d_zero)

@@ -160,8 +160,9 @@ class PenalizedRegression:
             bgrad, wgrad, s2grad = pmash.gradients
         else:
             djinv = 1 / self._dj
+            s2 = sigma * sigma
             obj, bgrad, wgrad, s2grad \
-                = flib_penmrash.objective_gradients(self._X, self._y, b, sigma, wk, self._sk, djinv)
+                = flib_penmrash.objective_gradients(self._X, self._y, b, s2, wk, self._sk, djinv)
         return obj, bgrad, wgrad, s2grad
 
 

@@ -4,26 +4,33 @@ program main
     use futils
     use normal_means_ash_scaled
     use plr_mrash
+    use lbfgsb_driver
     implicit none
     integer, parameter :: nsample = 5, ndim = 6, ncomp = 3
     real(r8k) :: X(nsample, ndim), X2(nsample, ndim)
     real(r8k) :: y(nsample), dj(ndim), b(ndim), djinv(ndim)
     real(r8k) :: wk(ncomp), sk(ncomp)
-    real(r8k) :: s
-    integer(i4k) :: i
-    real(r8k) :: obj, bgrad(ndim), wgrad(ncomp), s2grad
+    real(r8k) :: s, s2
+    integer(i4k) :: i, j
+    real(r8k) :: obj, bgrad(ndim), wgrad(ncomp), agrad(ncomp), s2grad
     real(r8k) :: t1, t2
 
 !
 !       NMash variables
-        integer, parameter :: p = 6, k = 3
-        real(r8k), dimension(p)    :: lml 
-        real(r8k), dimension(p)    :: lml_bd,  lml_bd_bd
-        real(r8k), dimension(p, k) :: lml_wd,  lml_bd_wd
-        real(r8k), dimension(p)    :: lml_s2d, lml_bd_s2d
+    integer, parameter :: p = 6, k = 3
+    real(r8k), dimension(p)    :: lml 
+    real(r8k), dimension(p)    :: lml_bd,  lml_bd_bd
+    real(r8k), dimension(p, k) :: lml_wd,  lml_bd_wd
+    real(r8k), dimension(p)    :: lml_s2d, lml_bd_s2d
+
+    real(r8k) :: ak(ncomp), wkmod(ncomp), akjac(ncomp, ncomp)
+    real(r8k) :: smlogbase
+
+    integer(i4k) :: nparams
 
 
     s = 0.9d0
+    s2 = s ** d_two
     y = [3.5d0, 4.5d0, 1.2d0, 6.5d0, 2.8d0]
     DATA               X/                    &
        8.79, 6.11,-9.15, 9.57,-3.49, 9.84,   &
@@ -33,8 +40,14 @@ program main
        3.16, 7.98, 3.01, 5.80, 4.27,-5.31    &
                         /
     b = [1.21, 2.32, 0.01, 0.03, 0.11, 3.12]
-    sk = [0.d0, 0.1d0, 0.9d0]
+    sk = [0.1d0, 0.5d0, 0.9d0]
     wk = [0.5d0, 0.25d0, 0.25d0]
+
+    smlogbase = 2.0d0 
+    do i = 1, ncomp
+        ak(i) = log(wk(i)) / smlogbase
+    end do
+    wkmod = softmax(ak, smlogbase)
 
 !    call deepcopy_matrix(X, Xcopy1, nsample, ndim)
 !    call deepcopy_matrix(X, Xcopy2, nsample, ndim)
@@ -56,8 +69,15 @@ program main
     t2 = exp(t1)
     write (6, *) t2
     write (6, *) "Enter plr_mrash subroutine"
-    call objective_gradients(nsample, ndim, X, y, b, s, ncomp, wk, sk, djinv, obj, bgrad, wgrad, s2grad)
+    call plr_obj_grad_shrinkop(nsample, ndim, X, y, b, s, ncomp, wk, sk, djinv, obj, bgrad, wgrad, s2grad)
     write (6, *) "Returned"
+    akjac = softmax_jacobian(wk, smlogbase)
+    call fill_real_vector(agrad, d_zero)
+    do j = 1, ncomp
+        do i = 1, ncomp
+            agrad(j) = agrad(j) + wgrad(i) * akjac(i, j) 
+        end do
+    end do
 
 !       ========================
 !       Use normal means model
@@ -70,21 +90,38 @@ program main
         call fill_real_vector(lml_bd_bd, d_zero)
         call fill_real_matrix(lml_bd_wd, d_zero)
         call fill_real_vector(lml_bd_s2d, d_zero)
-        call normal_means_ash_lml(p, k, b, s, wk, sk, djinv,                    &
+        call normal_means_ash_lml(p, k, b, s2, wk, sk, djinv,                    &
                                   lml, lml_bd, lml_wd, lml_s2d,                      &
                                   lml_bd_bd, lml_bd_wd, lml_bd_s2d)
 
 
+    nparams = ndim + ncomp + 1
+    call min_plr_shrinkop(nsample, ndim, X, y, ncomp, b, wk, s2, sk,           & 
+                    nparams, .TRUE., .TRUE., .TRUE.,                           &
+                    d_one, 5, 1, 1.0d+7, 1.0d-5, 10, 1000)
+
+
     write (6, *) "Input data =>"
+    write (6, *) "y"
     call print_vector(y, nsample)
+    write (6, *) "X"
     call print_array2d(X, nsample, ndim)
+    write (6, *) "ak"
+    call print_vector(ak, ncomp)
+    write (6, *) "wk"
+    call print_vector(wkmod, ncomp)
+    write (6, *) "Output data =>"
     write (6, *) "log ML"
     call print_vector(lml, p)
     write (6, *) "Objective = ", obj
-    write (6, *) "bgrad =>"
+    write (6, *) "bgrad"
     call print_vector(bgrad, ndim)
-    write (6, *) "wgrad =>"
+    write (6, *) "wgrad"
     call print_vector(wgrad, ncomp)
-    write (6, *) "s2grad =>"
+    write (6, *) "Softmax jacobian"
+    call print_array2d(akjac, ncomp, ncomp)
+    write (6, *) "agrad"
+    call print_vector(agrad, ncomp)
+    write (6, *) "s2grad"
     write (6, *) s2grad
 end program 
