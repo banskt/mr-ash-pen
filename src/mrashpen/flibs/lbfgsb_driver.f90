@@ -1,8 +1,7 @@
 module lbfgsb_driver
     use env_precision
     use global_parameters
-    use futils
-    use normal_means_ash_scaled
+    use futils, only: fill_integer_vector, softmax, softmax_gradient
     implicit none
 !
 contains
@@ -171,9 +170,12 @@ contains
 !       --------------------------------------------------------------
 !
     subroutine min_plr_shrinkop(n, p, X, y, k, t, w, s2, sgrid,                &
-                                nopt, opt_t, opt_w, opt_s2,                    &
+                                nopt, is_topt, is_wopt, is_s2opt,              &
                                 smlb, m, iprint, factr, pgtol,                 &
-                                maxiter, maxfev)
+                                maxiter, maxfev,                               &
+                                topt, wopt, s2opt, obj, grad, nfev, niter,     &
+                                task)
+
 !   
 !   This subroutine uses L-BFGS-B to minimize the objective function,
 !
@@ -240,11 +242,11 @@ contains
 !           see description of variables in L-BFGS-B. 
 !           It is not altered by the routine.
 !
-!       opt_t is a LOGICAL variable, whether to optimize t.
+!       is_topt is a LOGICAL variable, whether to optimize t.
 !
-!       opt_w is a LOGICAL variable, whether to optimize w.
+!       is_wopt is a LOGICAL variable, whether to optimize w.
 !
-!       opt_s2 is a LOGICAL variable, whether to optimize s2.
+!       is_s2opt is a LOGICAL variable, whether to optimize s2.
 !
 !       smlb is a DOUBLE PRECISION variable; the log-base of the 
 !           softmax parametrization of w.
@@ -281,24 +283,27 @@ contains
         integer(i4k), intent(in)      :: maxiter, maxfev
         real(r8k), intent(in)         :: X(n, p), y(n)
         real(r8k), intent(in)         :: sgrid(k)
-        real(r8k), intent(inout)      :: t(p), w(k), s2
+        real(r8k), intent(in)         :: t(p), w(k), s2
         real(r8k), intent(in)         :: smlb
 !       real(r8k), parameter          :: factr  = 1.0d+7, pgtol  = 1.0d-5
         real(r8k), intent(in)         :: factr, pgtol
-        logical, intent(in)           :: opt_t, opt_w, opt_s2
+        logical, intent(in)           :: is_topt, is_wopt, is_s2opt
+        real(r8k), intent(out)        :: topt(p), wopt(k), s2opt
+        real(r8k), intent(out)        :: obj
+        real(r8k), intent(out)        :: grad(nopt)
+        integer(i4k), intent(out)     :: nfev, niter
+        character(len=60), intent(out) :: task
 !
 !       variables used in this subroutine
 !
         real(r8k), dimension(nopt)    :: xopt
-        real(r8k)                     :: obj
-        real(r8k), dimension(nopt)    :: grad
         real(r8k)                     :: tgrad(p), wgrad(k), s2grad, agrad(k)
         real(r8k)                     :: a(k)
         real(r8k)                     :: X2(n, p), dj(p), djinv(p)
         integer(i4k), dimension(nopt) :: nbd
         integer(i4k)                  :: t_nbd(p), w_nbd(k)
         real(r8k), dimension(nopt)    :: lbd, ubd
-        character(len=60)             :: task, csave
+        character(len=60)             :: csave
         real(r8k), allocatable        :: wa(:)
         integer(i4k), allocatable     :: iwa(:)
         logical                       :: lsave(4)
@@ -314,9 +319,9 @@ contains
 !      
         call fill_integer_vector(t_nbd, 0)
         call fill_integer_vector(w_nbd, 0)
-        call combine_integer_parameters(nopt, nbd, p, k, t_nbd, w_nbd, 1, opt_t, opt_w, opt_s2)
-        if (opt_s2) then
-            lbd(nopt) = d_zero
+        call combine_integer_parameters(nbd, t_nbd, w_nbd, 1, is_topt, is_wopt, is_s2opt)
+        if (is_s2opt) then
+            lbd(nopt) = d_one * 1.0d-8
         end if
 !
 !       Convert w to softmax parameters a
@@ -331,7 +336,7 @@ contains
 !
 !       `xopt` is the array of variables to be optimized
 !       On entry, it contains the initial guess for t, a and s2
-        call combine_parameters(nopt, xopt, p, k, t, a, s2, opt_t, opt_w, opt_s2)
+        call combine_parameters(xopt, t, a, s2, is_topt, is_wopt, is_s2opt)
 !
 !       Precalculate dj and 1/dj
 !
@@ -358,29 +363,27 @@ contains
 !           -------------------------------------------------
 !           This is done using the following steps:
 !               1. Split xopt to obtain t, a and s2.
-                call split_parameters( nopt, xopt, p, k, t, a, s2,             &
-                                        opt_t, opt_w, opt_s2 )
+                call split_parameters( xopt, topt, a, s2opt, is_topt, is_wopt, is_s2opt )
 !
 !               2. Obtain w = softmax(a)
-                if (opt_w) then
-                    w = softmax(a, smlb)
+                if (is_wopt) then
+                    wopt = softmax(a, smlb)
                 end if
 !
 !               3. Use t, w and s2 to obtain objective and 
 !                  gradients with respect to t, w and s2.
-                call plr_obj_grad_shrinkop( n, p, X, y, t, s2, k, w,                    &
+                call plr_obj_grad_shrinkop( n, p, X, y, topt, s2opt, k, wopt,  &
                                               sgrid, djinv,                    &
                                               obj, tgrad, wgrad, s2grad )
 !
 !               4. Obtain gradients w.r.t a from gradients w.r.t w
-                if (opt_w) then
-                    call softmax_gradient( k, w, smlb, wgrad, agrad )
+                if (is_wopt) then
+                    call softmax_gradient( k, wopt, smlb, wgrad, agrad )
                 end if
 !
 !               5. Combine the gradients to a single aray.
-                call combine_parameters( nopt, grad, p, k,                     &
-                                          tgrad, agrad, s2grad,                &
-                                          opt_t, opt_w, opt_s2)
+                call combine_parameters(grad, tgrad, agrad, s2grad, is_topt, is_wopt, is_s2opt)
+!
             else if (task(1:5) .eq. 'NEW_X') then
 !
 !           -------------------------------------------------
@@ -422,52 +425,50 @@ contains
                                   obj, xopt, task)
             end if
         end do
+        niter = isave(30)
+        nfev  = isave(34)
     end subroutine
 !
-    subroutine split_parameters(nparams, x, p, k, t, a, s, opt_t, opt_a, opt_s)
+    subroutine split_parameters(x, t, a, s, is_topt, opt_a, opt_s)
 !   
 !   x = [t_1, t_2, ... t_p, a_1, a_2, ..., a_k, s]
 !   This subroutine helps to split an array of DOUBLE PRECISION variables x
 !   to its constituents: array t, array a, and variable s.
-!       x contains t only if opt_t = .true.
-!       x contains w only if opt_w = .true.
+!       x contains t only if is_topt = .true.
+!       x contains w only if is_wopt = .true.
 !       x contains s only if opt_s = .true.
 !   nparams is an INTEGER which contains the total number of variables in x.
 !   p is an INTEGER; size of t
 !   k is an INTEGER; size of a
 !
         implicit none
-        integer(i4k) :: nparams, p, k
-        real(r8k)    :: x(nparams)
-        real(r8k)    :: t(p), a(k), s
-        logical      :: opt_t, opt_a, opt_s
-        integer(i4k) :: i, iopt
+        integer(i4k) :: p, k, iopt
+        real(r8k)    :: x(:), t(:), a(:), s
+        logical      :: is_topt, opt_a, opt_s
 !
+        p = size(t)
+        k = size(a)
         iopt = 0 
-        if (opt_t) then
-            do i = 1, p
-                t(i) = x(i)
-            end do
+        if (is_topt) then
+            t = x(1:p)
             iopt = p
         end if
         if (opt_a) then
-            do i = 1, k
-                a(i) = x(iopt + i)
-            end do
+            a = x(iopt+1:iopt+k)
             iopt = iopt + k
         end if
         if (opt_s) then
-            s = x(iopt + 1)
+            s = x(iopt+1)
         end if
     end subroutine
 
-    subroutine combine_parameters(nparams, x, p, k, t, a, s, opt_t, opt_a, opt_s)
+    subroutine combine_parameters(x, t, a, s, is_topt, opt_a, opt_s)
 !   
 !   x = [t_1, t_2, ... t_p, a_1, a_2, ..., a_k, s]
 !   This subroutine helps to combine array t, array a, and variable s
 !   to an array of DOUBLE PRECISION variables x.
-!       x contains t only if opt_t = .true.
-!       x contains w only if opt_w = .true.
+!       x contains t only if is_topt = .true.
+!       x contains w only if is_wopt = .true.
 !       x contains s only if opt_s = .true.
 !   nparams is an INTEGER which contains the total number of variables in x.
 !   p is an INTEGER; size of t
@@ -476,66 +477,58 @@ contains
 !   see combine_integer_parameters() for combining INTEGER variables.
 !
         implicit none
-        integer(i4k) :: nparams, p, k
-        real(r8k)    :: x(nparams)
-        real(r8k)    :: t(p), a(k), s
-        logical      :: opt_t, opt_a, opt_s
-        integer(i4k) :: i, iopt
+        integer(i4k) :: p, k, iopt
+        real(r8k)    :: x(:), t(:), a(:), s
+        logical      :: is_topt, opt_a, opt_s
 !
+        p = size(t)
+        k = size(a)
         iopt = 0 
-        if (opt_t) then
-            do i = 1, p
-                x(i) = t(i)
-            end do
+        if (is_topt) then
+            x(1:p) = t
             iopt = p
         end if
         if (opt_a) then
-            do i = 1, k
-                x(iopt + i) = a(i)
-            end do
+            x(iopt+1:iopt+k) = a
             iopt = iopt + k
         end if
         if (opt_s) then
-            x(iopt + 1) = s
+            x(iopt+1) = s
         end if
     end subroutine
 
-    subroutine combine_integer_parameters(nparams, x, p, k, t, a, s, opt_t, opt_a, opt_s)
+    subroutine combine_integer_parameters(x, t, a, s, is_topt, opt_a, opt_s)
 !   
 !   same as combine_parameters() but for INTEGER variables in t, a, s and x.
 !
 !   x = [t_1, t_2, ... t_p, a_1, a_2, ..., a_k, s]
 !   This subroutine helps to combine array t, array a, and variable s
 !   to an array of INTEGER variables x.
-!       x contains t only if opt_t = .true.
-!       x contains w only if opt_w = .true.
+!       x contains t only if is_topt = .true.
+!       x contains w only if is_wopt = .true.
 !       x contains s only if opt_s = .true.
 !   nparams is an INTEGER which contains the total number of variables in x.
 !   p is an INTEGER; size of t
 !   k is an INTEGER; size of a
 !
         implicit none
-        integer(i4k) :: nparams, p, k
-        integer(i4k) :: x(nparams)
-        integer(i4k) :: t(p), a(k), s
-        logical      :: opt_t, opt_a, opt_s
-        integer(i4k) :: i, iopt
+        integer(i4k) :: p, k, iopt
+        integer(i4k) :: x(:), t(:), a(:), s
+        logical      :: is_topt, opt_a, opt_s
 !
+        p = size(t)
+        k = size(a)
         iopt = 0 
-        if (opt_t) then
-            do i = 1, p
-                x(i) = t(i)
-            end do
-            iopt = p
+        if (is_topt) then
+            x(1:p) = t 
+            iopt = p 
         end if
         if (opt_a) then
-            do i = 1, k
-                x(iopt + i) = a(i)
-            end do
-            iopt = iopt + k
+            x(iopt+1:iopt+k) = a 
+            iopt = iopt + k 
         end if
         if (opt_s) then
-            x(iopt + 1) = s
+            x(iopt+1) = s 
         end if
     end subroutine
 !

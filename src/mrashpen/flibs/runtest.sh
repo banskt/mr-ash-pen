@@ -1,6 +1,6 @@
 #!/bin/bash
 
 make clean
-make test1
+make test3
 make clean_modules
-./test1
+./test3

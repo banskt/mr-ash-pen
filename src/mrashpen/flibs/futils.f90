@@ -9,29 +9,32 @@ contains
         real(r8k), intent(inout) :: x(:)
         real(r8k) :: a
         integer(i4k) :: i
-        do i = 1, size(x)
-            x(i) = a
-        end do
+        x = a
+        !do i = 1, size(x)
+        !    x(i) = a
+        !end do
     end subroutine fill_real_vector
 
     subroutine fill_integer_vector(x, a)
         integer(i4k), intent(inout) :: x(:)
         integer(i4k) :: a
         integer(i4k) :: i
-        do i = 1, size(x)
-            x(i) = a
-        end do
+        x = a
+        !do i = 1, size(x)
+        !    x(i) = a
+        !end do
     end subroutine fill_integer_vector
 
     subroutine fill_real_matrix(x, a)
         real(r8k), intent(inout) :: x(:, :)
         real(r8k) :: a
         integer(i4k) :: i, j
-        do j = 1, size(x, 2)
-            do i = 1, size(x, 1)
-                x(i, j) = a
-            end do
-        end do
+        x = a
+        !do j = 1, size(x, 2)
+        !    do i = 1, size(x, 1)
+        !        x(i, j) = a
+        !    end do
+        !end do
     end subroutine fill_real_matrix
 
     function log_sum_exponent2d(z) result(zsum)

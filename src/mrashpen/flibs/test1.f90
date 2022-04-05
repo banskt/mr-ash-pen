@@ -14,7 +14,10 @@ program main
     integer(i4k) :: i, j
     real(r8k) :: obj, bgrad(ndim), wgrad(ncomp), agrad(ncomp), s2grad
     real(r8k) :: t1, t2
-
+    real(r8k) :: bopt(ndim), wopt(ncomp), s2opt, objopt
+    real(r8k), allocatable :: gradopt(:)
+    integer(i4k) :: nfev, niter
+    character(len=60) :: task
 !
 !       NMash variables
     integer, parameter :: p = 6, k = 3
@@ -27,6 +30,9 @@ program main
     real(r8k) :: smlogbase
 
     integer(i4k) :: nparams
+
+
+    allocate(gradopt(ndim + ncomp + 1))
 
 
     s = 0.9d0
@@ -98,7 +104,8 @@ program main
     nparams = ndim + ncomp + 1
     call min_plr_shrinkop(nsample, ndim, X, y, ncomp, b, wk, s2, sk,           & 
                     nparams, .TRUE., .TRUE., .TRUE.,                           &
-                    d_one, 5, 1, 1.0d+7, 1.0d-5, 10, 1000)
+                    d_one, 10, 1, 1.0d+7, 1.0d-5, 10, 1000,                    &
+                    bopt, wopt, s2opt, objopt, gradopt, nfev, niter, task)
 
 
     write (6, *) "Input data =>"

@@ -1,9 +1,11 @@
 module plr_mrash
     use env_precision
     use global_parameters
-    use futils
-    use normal_means_ash_scaled
+    use futils, only: fill_real_vector, fill_real_matrix, duplicate_columns
+    use normal_means_ash_scaled!, only: normal_means_ash_lml
     implicit none
+!    private
+!    public plr_obj_grad_shrinkop
 !
 contains
 !
@@ -128,6 +130,8 @@ contains
 !       internal placeholders
         p     = size(b)
         k     = size(lml_bd_wd, 2)
+        if( allocated(v_one) )  deallocate( v_one )
+        if( allocated(bvar_mat) )  deallocate( bvar_mat )
         allocate (v_one(p), bvar_mat(p, k))
         call fill_real_vector(v_one, d_one)
         bvar_mat = duplicate_columns(bvar, k)
@@ -163,6 +167,10 @@ contains
 !       internal placeholders
         p     = size(b)
         k     = size(lml_wd, 2)
+        if( allocated(M1) )  deallocate(M1)
+        if( allocated(M2) )  deallocate(M2)
+        if( allocated(M3) )  deallocate(M3)
+        if( allocated(v1) )  deallocate(v1)
         allocate(M1(p, k), M2(p, k), M3(p, k))
         allocate(v1(p))
 !

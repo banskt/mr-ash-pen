@@ -1,11 +1,12 @@
 module normal_means_ash_scaled
     use env_precision
     use global_parameters
-    use futils
+    use futils, only: fill_real_vector, fill_real_matrix,                       &
+                      get_nonzero_index_vector, duplicate_columns,              &
+                      log_sum_exponent2d
     implicit none
 !    private
-!    public initialize, log_sum_exponent2d
-
+!    public normal_means_ash_lml
 !   ====================
 !   Global variables in this module
 !   ====================
@@ -14,7 +15,6 @@ module normal_means_ash_scaled
 !   wk  vector of length k  | prior mixture proportions 
 !   sk  vector of length k  | prior mixture standard deviations
 !   dj  vector of length n | a scaling vector for s
-
 contains
 
     subroutine normal_means_ash_lml(ndim, ncomp, y, s2, wk, sk, djinv,           &
@@ -132,6 +132,7 @@ contains
         np = size(logLjk, 1)
         nk = size(wk)
         nz = sum(nzwk_idx)
+        if( allocated(z) )  deallocate( z ) 
         allocate(z(np, nz))
         k = 0
         do j = 1, nk
