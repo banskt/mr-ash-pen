@@ -1,6 +1,7 @@
 FC = gfortran
 
-FFLAGS = -O -Wall -fbounds-check -g -Wno-uninitialized -fno-automatic
+FFLAGS = -O3 -Wall -fbounds-check -g -Wno-uninitialized -fno-automatic -ffast-math
+#FFLAGS = -O3 -Wall
 # The default, which is -fautomatic, uses the stack for local variables smaller
 # than the value given by -fmax-stack-var-size.
 LINALGFLAGS = -llapack -lblas
@@ -14,18 +15,17 @@ CONSTANTS = global_parameters.f90
 FORTUTILS = futils.f90
 NMASH_SC  = normal_means_ash_scaled.f90
 MRASHPEN  = plr_mrash.f90
-DATASIM   = get_data.f90
 
 all : test1 test3 
 
 test1 : $(PRECISION) $(CONSTANTS) $(FORTUTILS) $(NMASH_SC) $(MRASHPEN) $(LBFGSB) $(DRIVER) $(TESTFILE1)
 	$(FC) $(FFLAGS) $? -o $@ $(LINALGFLAGS)
 
-test3 : $(PRECISION) $(CONSTANTS) $(FORTUTILS) $(DATASIM) $(NMASH_SC) $(MRASHPEN) $(TESTFILE3)
+test3 : $(PRECISION) $(CONSTANTS) $(FORTUTILS) $(NMASH_SC) $(MRASHPEN) $(TESTFILE3)
 	$(FC) $(FFLAGS) $? -o $@ $(LINALGFLAGS)
 
-gprofile : $(PRECISION) $(CONSTANTS) $(FORTUTILS) $(DATASIM) $(NMASH_SC) $(MRASHPEN) $(TESTFILE3)
-	$(FC) $(FFLAGS) $? -pg -o $@ $(LINALGFLAGS)
+gprofile : $(PRECISION) $(CONSTANTS) $(FORTUTILS) $(NMASH_SC) $(MRASHPEN) $(TESTFILE3)
+	$(FC) $(FFLAGS) $? -pg -g -o $@ $(LINALGFLAGS)
 
 .PHONY : clean clean_modules clean_targets
 
@@ -36,4 +36,3 @@ clean_modules:
 
 clean_targets:
 	rm -f test1 test3 gprofile
-

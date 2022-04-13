@@ -1,3 +1,7 @@
+# Fortran test data files
+src/mrashpen/flibs/*.dat
+src/mrashpen/flibs/*.png
+src/mrashpen/flibs/*.out
 
 # Vim swaps
 *.swp

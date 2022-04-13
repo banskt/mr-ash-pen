@@ -1,7 +1,7 @@
 module plr_mrash
     use env_precision
     use global_parameters
-    use futils, only: fill_real_vector, fill_real_matrix, duplicate_columns
+    use futils, only: duplicate_columns
     use normal_means_ash_scaled!, only: normal_means_ash_lml
     implicit none
 !    private
@@ -48,13 +48,13 @@ contains
 !       Use normal means model
 !       ========================
 !       Initialize
-        call fill_real_vector(lml, d_zero)
-        call fill_real_vector(lml_bd, d_zero)
-        call fill_real_matrix(lml_wd, d_zero)
-        call fill_real_vector(lml_s2d, d_zero)
-        call fill_real_vector(lml_bd_bd, d_zero)
-        call fill_real_matrix(lml_bd_wd, d_zero)
-        call fill_real_vector(lml_bd_s2d, d_zero)
+        lml = d_zero
+        lml_bd = d_zero
+        lml_wd = d_zero
+        lml_s2d = d_zero
+        lml_bd_bd = d_zero
+        lml_bd_wd = d_zero
+        lml_bd_s2d = d_zero
         call normal_means_ash_lml(p, k, b, s2, wk, sk, djinv,                        &
                                   lml, lml_bd, lml_wd, lml_s2d,                      &
                                   lml_bd_bd, lml_bd_wd, lml_bd_s2d)
@@ -69,27 +69,24 @@ contains
                                   lml, lml_bd, lml_wd, lml_s2d,                      &
                                   lml_bd_bd, lml_bd_wd, lml_bd_s2d,                  &
                                   lambdaj, l_bgrad, l_wgrad, l_s2grad)
-        call fill_real_vector(XMb, d_zero)
+        XMb = d_zero
         call dgemv('N', n, p, d_one, X, n, Mb, 1, d_zero, XMb, 1)
         r    = y - XMb ! vector addition, F90
         rTr  = ddot(n, r, 1, r, 1)
-!        call print_vector(r, n)
-        obj  = (d_half * rTr / s2) + sum(lambdaj)                                    &
+        obj  = (d_half * rTr / s2)                                                   &
+               + sum(lambdaj)                                                        &
                + d_half * (n - p) * (log2pi + log(s2))
-!        write (6, *) "Objective", obj
 !
 !       ========================
 !       Gradients
 !       ========================
 !       Gradient with respect to b
-        call fill_real_vector(rTX, d_zero)
+        rTX = d_zero
         call dgemv('T', n, p, d_one, X, n, r, 1, d_zero, rTX, 1)
         bgrad  = - (rTX * Mb_bgrad / s2) + l_bgrad
-!        write (6, *) "subroutine bgrad"
-!        call print_vector(bgrad, p)
 !
 !       Gradient with respect to w
-        call fill_real_vector(v1, d_zero)
+        v1 = d_zero
 !        write (6, *) 'v1 =>'
 !        call print_vector(v1, k)
         call dgemv('T', p, k, d_one, Mb_wgrad, p, rTX, 1, d_zero, v1, 1)
@@ -125,20 +122,22 @@ contains
         real(r8k), intent(out) :: Mb_s2grad(size(b))
 !       local variables
         integer(i4k) :: p, k
-        real(r8k), allocatable :: v_one(:), bvar_mat(:, :)
+        real(r8k), allocatable :: bvar_mat(:, :)
+        !real(r8k), allocatable :: v_one(:), bvar_mat(:, :)
 !
 !       internal placeholders
         p     = size(b)
         k     = size(lml_bd_wd, 2)
-        if( allocated(v_one) )  deallocate( v_one )
+        !if( allocated(v_one) )  deallocate( v_one )
         if( allocated(bvar_mat) )  deallocate( bvar_mat )
-        allocate (v_one(p), bvar_mat(p, k))
-        call fill_real_vector(v_one, d_one)
-        bvar_mat = duplicate_columns(bvar, k)
+        !allocate (v_one(p), bvar_mat(p, k))
+        allocate(bvar_mat(p, k))
+        !v_one = d_one
+        call duplicate_columns(bvar, k, bvar_mat)
 !    
 !       calculation
         Mb        = b + (bvar * lml_bd)
-        Mb_bgrad  = v_one + (bvar * lml_bd_bd)
+        Mb_bgrad  = d_one + (bvar * lml_bd_bd)
         Mb_wgrad  = bvar_mat * lml_bd_wd
         Mb_s2grad = (lml_bd * djinv) + (bvar * lml_bd_s2d)
     end subroutine
@@ -179,8 +178,8 @@ contains
 !       Gradient with respect to b
         l_bgrad  = - lml_bd - bvar * lml_bd * lml_bd_bd
 !       Gradient with respect to w
-        M1       = duplicate_columns(bvar, k)
-        M2       = duplicate_columns(lml_bd, k)
+        call duplicate_columns(bvar, k, M1)
+        call duplicate_columns(lml_bd, k, M2)
         M3       = - lml_wd - (M1 * M2 * lml_bd_wd)
         l_wgrad  = sum(M3, 1)
 !       Gradient with respect to s2

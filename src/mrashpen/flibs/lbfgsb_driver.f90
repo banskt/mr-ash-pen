@@ -1,7 +1,7 @@
 module lbfgsb_driver
     use env_precision
     use global_parameters
-    use futils, only: fill_integer_vector, softmax, softmax_gradient
+    use futils, only: softmax, softmax_gradient
     implicit none
 !
 contains
@@ -317,8 +317,8 @@ contains
 !       Bounds: There is only a lower bound on sigma^2
 !       All other parameters are unbounded
 !      
-        call fill_integer_vector(t_nbd, 0)
-        call fill_integer_vector(w_nbd, 0)
+        t_nbd = 0
+        w_nbd = 0
         call combine_integer_parameters(nbd, t_nbd, w_nbd, 1, is_topt, is_wopt, is_s2opt)
         if (is_s2opt) then
             lbd(nopt) = d_one * 1.0d-8
@@ -367,7 +367,7 @@ contains
 !
 !               2. Obtain w = softmax(a)
                 if (is_wopt) then
-                    wopt = softmax(a, smlb)
+                    call softmax(a, smlb, wopt)
                 end if
 !
 !               3. Use t, w and s2 to obtain objective and 

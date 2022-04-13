@@ -49,15 +49,15 @@ program main
     sk = [0.1d0, 0.5d0, 0.9d0]
     wk = [0.5d0, 0.25d0, 0.25d0]
 
-    smlogbase = 2.0d0 
+    smlogbase = 1.0d0 
     do i = 1, ncomp
         ak(i) = log(wk(i)) / smlogbase
     end do
-    wkmod = softmax(ak, smlogbase)
+    call softmax(ak, smlogbase, wkmod)
+!    wkmod = softmax(ak, smlogbase)
 
 !    call deepcopy_matrix(X, Xcopy1, nsample, ndim)
 !    call deepcopy_matrix(X, Xcopy2, nsample, ndim)
-!    call fill_real_matrix(XTX, d_zero)
 !    call dgemm('T', 'N', ndim, ndim, nsample, d_one, Xcopy1, nsample, Xcopy2, nsample, d_zero, XTX, ndim)
 
     X2 = X ** d_two
@@ -67,18 +67,22 @@ program main
     end do
 
     obj = 0
-    call fill_real_vector(bgrad, d_zero)
-    call fill_real_vector(wgrad, d_zero)
+    bgrad = d_zero
+    wgrad = d_zero
     s2grad = 0
     write (6, *) "exponent of -1020"
     t1 = -1020.d0
     t2 = exp(t1)
     write (6, *) t2
     write (6, *) "Enter plr_mrash subroutine"
-    call plr_obj_grad_shrinkop(nsample, ndim, X, y, b, s, ncomp, wk, sk, djinv, obj, bgrad, wgrad, s2grad)
+    do i = 1, 5
+        call plr_obj_grad_shrinkop(nsample, ndim, X, y, b, s2, ncomp, wk, sk, djinv, obj, bgrad, wgrad, s2grad)
+        write (6, *) "Objective = ", obj
+    end do
     write (6, *) "Returned"
-    akjac = softmax_jacobian(wk, smlogbase)
-    call fill_real_vector(agrad, d_zero)
+    call softmax_jacobian(wk, smlogbase, akjac)
+!    akjac = softmax_jacobian(wk, smlogbase)
+    agrad = d_zero
     do j = 1, ncomp
         do i = 1, ncomp
             agrad(j) = agrad(j) + wgrad(i) * akjac(i, j) 
@@ -88,24 +92,16 @@ program main
 !       ========================
 !       Use normal means model
 !       ========================
-!       Initialize
-        call fill_real_vector(lml, d_zero)
-        call fill_real_vector(lml_bd, d_zero)
-        call fill_real_matrix(lml_wd, d_zero)
-        call fill_real_vector(lml_s2d, d_zero)
-        call fill_real_vector(lml_bd_bd, d_zero)
-        call fill_real_matrix(lml_bd_wd, d_zero)
-        call fill_real_vector(lml_bd_s2d, d_zero)
-        call normal_means_ash_lml(p, k, b, s2, wk, sk, djinv,                    &
-                                  lml, lml_bd, lml_wd, lml_s2d,                      &
-                                  lml_bd_bd, lml_bd_wd, lml_bd_s2d)
+    call normal_means_ash_lml(p, k, b, s2, wk, sk, djinv,                    &
+                              lml, lml_bd, lml_wd, lml_s2d,                      &
+                              lml_bd_bd, lml_bd_wd, lml_bd_s2d)
 
 
-    nparams = ndim + ncomp + 1
-    call min_plr_shrinkop(nsample, ndim, X, y, ncomp, b, wk, s2, sk,           & 
-                    nparams, .TRUE., .TRUE., .TRUE.,                           &
-                    d_one, 10, 1, 1.0d+7, 1.0d-5, 10, 1000,                    &
-                    bopt, wopt, s2opt, objopt, gradopt, nfev, niter, task)
+!    nparams = ndim + ncomp + 1
+!    call min_plr_shrinkop(nsample, ndim, X, y, ncomp, b, wk, s2, sk,           & 
+!                    nparams, .TRUE., .TRUE., .TRUE.,                           &
+!                    d_one, 10, 1, 1.0d+7, 1.0d-5, 10, 1000,                    &
+!                    bopt, wopt, s2opt, objopt, gradopt, nfev, niter, task)
 
 
     write (6, *) "Input data =>"

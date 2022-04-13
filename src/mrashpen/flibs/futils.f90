@@ -5,104 +5,72 @@ module futils
 
 contains
 
-    subroutine fill_real_vector(x, a)
-        real(r8k), intent(inout) :: x(:)
-        real(r8k) :: a
-        integer(i4k) :: i
-        x = a
-        !do i = 1, size(x)
-        !    x(i) = a
-        !end do
-    end subroutine fill_real_vector
+!    subroutine log_sum_exponent2d(z, zsum)
+!        real(r8k), intent(in)  :: z(:,:)
+!        real(r8k), intent(out) :: zsum(size(z, 1))
+!        real(r8k)              :: zmax, rowsum
+!        integer(i4k)           :: i
+!        real(r8k)              :: zT(size(z, 2), size(z, 1))
+!!        real(r8k)              :: tmp1(size(z, 2))
+!!       use transpose because Fortran use column-major ordering
+!        zT = transpose(z)
+!        zsum = d_zero
+!        do i = 1, size(z, 1)
+!            zmax    = maxval(zT(:, i))
+!            !write (6, *) "zmax:", zmax
+!            !tmp1    = zT(:, i) - zmax
+!            !write (6, *) i, "zi - zmax"
+!            !call print_vector(tmp1, size(tmp1))
+!            !tmp1    = vector_exp(tmp1)
+!            !write (6, *) "exponents"
+!            !call print_vector(tmp1, size(tmp1))
+!            rowsum  = sum(vector_exp(zT(:, i) - zmax))
+!            zsum(i) = log(rowsum) + zmax
+!        end do
+!    end subroutine
 
-    subroutine fill_integer_vector(x, a)
-        integer(i4k), intent(inout) :: x(:)
-        integer(i4k) :: a
-        integer(i4k) :: i
-        x = a
-        !do i = 1, size(x)
-        !    x(i) = a
-        !end do
-    end subroutine fill_integer_vector
+!    function vector_exp(x) result(y)
+!        real(r8k), intent(in) :: x(:)
+!        real(r8k)             :: y(size(x))
+!        integer(i4k)          :: i
+!        do i = 1, size(x)
+!            y(i) = exp(x(i))
+!        end do
+!    end function
 
-    subroutine fill_real_matrix(x, a)
-        real(r8k), intent(inout) :: x(:, :)
-        real(r8k) :: a
-        integer(i4k) :: i, j
-        x = a
-        !do j = 1, size(x, 2)
-        !    do i = 1, size(x, 1)
-        !        x(i, j) = a
-        !    end do
-        !end do
-    end subroutine fill_real_matrix
-
-    function log_sum_exponent2d(z) result(zsum)
-        real(r8k), intent(in)  :: z(:,:)
-        real(r8k)              :: zsum(size(z, 1))
-        real(r8k)              :: zmax, rowsum
-        integer(i4k)           :: i
-        real(r8k)              :: zT(size(z, 2), size(z, 1))
-!        real(r8k)              :: tmp1(size(z, 2))
-!       use transpose because Fortran use column-major ordering
-        zT = transpose(z)
-        call fill_real_vector(zsum, d_zero)
-        do i = 1, size(z, 1)
-            zmax    = maxval(zT(:, i))
-            !write (6, *) "zmax:", zmax
-            !tmp1    = zT(:, i) - zmax
-            !write (6, *) i, "zi - zmax"
-            !call print_vector(tmp1, size(tmp1))
-            !tmp1    = vector_exp(tmp1)
-            !write (6, *) "exponents"
-            !call print_vector(tmp1, size(tmp1))
-            rowsum  = sum(vector_exp(zT(:, i) - zmax))
-            zsum(i) = log(rowsum) + zmax
+    subroutine log_sum_exponent2d(nrow, ncol, z, zsum)
+!
+!   Given a DOUBLE PRECISION matrix z of size (n x p) - n rows and p columns
+!   return
+!       zsum(p) = log(sum_i(exp( z_{ij} )))
+!   That is, the sum is over each row of z.
+!
+        integer(i4k), intent(in) :: nrow, ncol
+        real(r8k), intent(in)    :: z(nrow, ncol)
+        real(r8k), intent(out)   :: zsum(ncol) 
+        real(r8k)                :: colmax(ncol), colsum
+        integer(i4k)             :: j!, i
+        real(r8k)                :: rtmp1
+        colmax = maxval(z, 1)
+        do j = 1, ncol
+            !colmax = maxval(z(:, j))
+            !colmax = z(1, j)
+            !do i = 2, nrow
+            !    if (z(i, j) .ge. colmax) then
+            !        colmax = z(i, j)
+            !    end if
+            !end do
+            rtmp1 = colmax(j)
+            !colsum = d_zero
+            !do i = 1, nrow
+            !    colsum = colsum + exp(z(i, j) - rtmp1)
+            !end do
+            colsum = sum( exp( z(:,j) - rtmp1 ) )
+            zsum(j) = log(colsum) + rtmp1
         end do
-    end function
+    end subroutine
 
-    function vector_exp(x) result (y)
-        real(r8k), intent(in) :: x(:)
-        real(r8k)             :: y(size(x))
-        integer(i4k)          :: i
-        do i = 1, size(x)
-            y(i) = exp(x(i))
-        end do
-    end function
-
-
-    function vector_log(x) result (y)
-        real(r8k), intent(in) :: x(:)
-        real(r8k)             :: y(size(x))
-        integer(i4k)          :: i
-        do i = 1, size(x)
-            y(i) = log(x(i))
-        end do
-    end function
-
-    function duplicate_columns(x, ncol) result(y)
-        integer(i4k), intent(in) :: ncol
-        real(r8k), intent(in)    :: x(:)
-        real(r8k)                :: y(size(x), ncol)
-        integer(i4k)             :: i
-        do i = 1, ncol
-            y(:, i) = x
-        end do
-    end function duplicate_columns
-
-    function get_nonzero_index_vector(x) result(vidx)
-        real(r8k), intent(in)  :: x(:)
-        integer                :: vidx(size(x))
-        integer                :: i
-        do i = 1, size(x)
-            vidx(i) = 0
-            if (x(i) .ne. d_zero) then
-                vidx(i) = 1
-            end if
-        end do
-    end function get_nonzero_index_vector
-
-    function softmax(x, logbase) result(w)
+    subroutine softmax(x, logbase, w)
 !
 !   Given DOUBLE PRECISION array a(k) and 
 !         DOUBLE PRECISION variable smlb = log(b), 
@@ -118,7 +86,8 @@ contains
 !
         real(r8k), intent(in)  :: x(:)
         real(r8k), intent(in)  :: logbase
-        real(r8k)              :: bx(size(x)), w(size(x))
+        real(r8k), intent(out) :: w(size(x))
+        real(r8k)              :: bx(size(x))
         real(r8k)              :: bxmax, wsum
         integer(i4k)           :: i
         do i = 1, size(x)
@@ -132,12 +101,12 @@ contains
         do i = 1, size(x)
             w(i) = w(i) / wsum
         end do
-    end function softmax
+    end subroutine softmax
 
-    function softmax_jacobian(w, logbase) result(jac)
+    subroutine softmax_jacobian(w, logbase, jac)
         real(r8k), intent(in)  :: w(:)
         real(r8k), intent(in)  :: logbase
-        real(r8k)              :: jac(size(w), size(w))
+        real(r8k), intent(out) :: jac(size(w), size(w))
         integer(i4k)           :: i, j
         real(r8k)              :: wj
         do j = 1, size(w)
@@ -149,7 +118,7 @@ contains
                 end if
             end do
         end do
-    end function softmax_jacobian
+    end subroutine softmax_jacobian
 
     subroutine softmax_gradient(n, w, smlb, dfdw, dfda)
 !   
@@ -164,12 +133,22 @@ contains
         real(r8k)     :: smlb
         real(r8k)     :: ajac(n, n)
         integer(i4k)  :: i, j
-        ajac = softmax_jacobian(w, smlb)
-        call fill_real_vector(dfda, d_zero)
+        call softmax_jacobian(w, smlb, ajac)
+        dfda = d_zero
         do j = 1, n
             do i = 1, n
                 dfda(j) = dfda(j) + dfdw(i) * ajac(i, j)
             end do
+        end do
+    end subroutine
+
+    subroutine duplicate_columns(x, ncol, y)
+        integer(i4k), intent(in) :: ncol
+        real(r8k), intent(in)    :: x(:)
+        real(r8k)                :: y(size(x), ncol)
+        integer(i4k)             :: i
+        do i = 1, ncol
+            y(:, i) = x 
         end do
     end subroutine
 
