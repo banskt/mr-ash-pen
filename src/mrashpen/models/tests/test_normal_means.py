@@ -3,10 +3,11 @@ import numpy as np
 
 from mrashpen.models.normal_means_ash import NormalMeansASH
 from mrashpen.utils.logs import MyLogger
+from mrashpen.utils import unittest_tester as tester
 
 mlogger = MyLogger(__name__)
 
-class TestNMAsh(unittest.TestCase):
+class TestNMAshPy(unittest.TestCase):
 
     def _NM_data(self):
         n = 100
@@ -88,4 +89,4 @@ class TestNMAsh(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    tester.main()

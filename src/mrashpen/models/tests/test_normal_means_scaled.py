@@ -3,10 +3,11 @@ import numpy as np
 
 from mrashpen.models.normal_means_ash_scaled import NormalMeansASHScaled
 from mrashpen.utils.logs import MyLogger
+from mrashpen.utils import unittest_tester as tester
 
 mlogger = MyLogger(__name__)
 
-class TestNMAshScaled(unittest.TestCase):
+class TestNMAshScaledPy(unittest.TestCase):
 
     def _NM_data(self):
         n = 100
@@ -104,4 +105,4 @@ class TestNMAshScaled(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    tester.main()

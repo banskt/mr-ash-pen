@@ -42,6 +42,7 @@ def ebfit(X, y, sk,
           epstol = 1e-8,
           unshrink_method = 'heuristic',
           is_prior_scaled = True,
+          is_binit_coef = False,
           display_progress = False,
           debug = False,
           plr_debug = False
@@ -70,6 +71,7 @@ def ebfit(X, y, sk,
           maxiter = qb_maxiter,
           unshrink_method = unshrink_method,
           prior_optim_method = 'softmax',
+          lbfgsb_call = 'python',
           call_from_em = True)
     
     
@@ -79,7 +81,8 @@ def ebfit(X, y, sk,
         '''
         is_step_one = True if itr == 0 else False
         bold = binit if is_step_one else theta
-        plr.fit(X, y, sk, binit = bold, winit = wk, s2init = s2, inv_binit = theta, is_binit_coef = is_step_one)
+        plr.fit(X, y, sk, binit = bold, winit = wk, s2init = s2, inv_binit = theta, 
+                is_binit_coef = is_step_one and is_binit_coef)
         theta = plr.theta
         if calculate_elbo:
             elbo_path += plr.elbo_path
