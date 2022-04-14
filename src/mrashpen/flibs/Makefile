@@ -8,7 +8,7 @@ LINALGFLAGS = -llapack -lblas
 
 TESTFILE1 = test1.f90
 TESTFILE3 = test3.f90
-DRIVER    = lbfgsb_driver.f90
+DRIVER    = optutils.f90 lbfgsb_driver.f90
 LBFGSB    = timer.f linpack.f lbfgsb.f
 PRECISION = env_precision.f90
 CONSTANTS = global_parameters.f90

@@ -5,6 +5,7 @@ wrapper for different minimization methods
 
 import numpy as np
 from scipy import optimize as sp_optimize
+from scipy.optimize import OptimizeResult as spOptimizeResult
 import logging
 import numbers
 
@@ -16,6 +17,7 @@ from . import coordinate_descent_step as cd_step
 from . import elbo as elbo_py
 
 from libmrashpen_plr_mrash import plr_mrash as flib_penmrash
+from libmrashpen_lbfgs_driver import lbfgsb_driver as flib_lbfgsb_driver
 
 
 def softmax(x, base = np.exp(1)):
@@ -36,8 +38,9 @@ class PenalizedRegression:
                  calculate_elbo = False,
                  call_from_em = False, # just a hack to prevent printing termination info
                  prior_optim_method = 'softmax', # can be softmax or mixsqp
-                 unshrink_method = 'newton-raphson-inversion', # can be newton-raphson-inversion or heuristic
+                 unshrink_method = 'newton', # can be 'newton' (newton-raphson-inversion) or 'heuristic'
                  function_call = 'fortran',
+                 lbfgsb_call = 'fortran',
                  debug = True):
         self._method = method
         self._opts   = options
@@ -70,11 +73,13 @@ class PenalizedRegression:
             self.logger = MyLogger(__name__, level = logging.INFO)
         self._calculate_elbo = calculate_elbo
         self._call_from_em = call_from_em
-        self._w_use_mixsqp    = True if prior_optim_method == 'mixsqp' else False
-        self._w_use_softmax   = True if prior_optim_method == 'softmax' else False
-        self._b_use_Minverse  = True if unshrink_method == 'newton-raphson-inversion' else False
-        self._b_use_heuristic = True if unshrink_method == 'heuristic' else False
-        self._f_use_python    = True if function_call == 'python' else False
+        self._w_use_mixsqp       = True if prior_optim_method == 'mixsqp' else False
+        self._w_use_softmax      = True if prior_optim_method == 'softmax' else False
+        self._b_use_Minverse     = True if unshrink_method == 'newton' else False
+        self._b_use_heuristic    = True if unshrink_method == 'heuristic' else False
+        self._f_use_fortran      = True if function_call == 'fortran' else False
+        self._lbfgsb_use_fortran = True if lbfgsb_call == 'fortran' else False
+        return
 
 
     @property
@@ -90,6 +95,7 @@ class PenalizedRegression:
     @property
     def prior(self):
         return self._prior
+
 
     @property
     def residual_var(self):
@@ -153,16 +159,22 @@ class PenalizedRegression:
 
 
     def pmash_obj_gradients(self, b, sigma, wk):
-        if self._f_use_python:
-            pmash = PenMrASH(self._X, self._y, b, sigma, wk, self._sk, dj = self._dj,
-                             debug = self._debug, is_prior_scaled = self._is_prior_scaled)
-            obj = pmash.objective
-            bgrad, wgrad, s2grad = pmash.gradients
-        else:
+        if self._f_use_fortran:
+            '''
+            Call function objective and gradient from FORTRAN
+            '''
             djinv = 1 / self._dj
             s2 = sigma * sigma
             obj, bgrad, wgrad, s2grad \
                 = flib_penmrash.plr_obj_grad_shrinkop(self._X, self._y, b, s2, wk, self._sk, djinv)
+        else:
+            '''
+            Call function objective and gradient from Python
+            '''
+            pmash = PenMrASH(self._X, self._y, b, sigma, wk, self._sk, dj = self._dj,
+                             debug = self._debug, is_prior_scaled = self._is_prior_scaled)
+            obj = pmash.objective
+            bgrad, wgrad, s2grad = pmash.gradients
         return obj, bgrad, wgrad, s2grad
 
 
@@ -209,12 +221,12 @@ class PenalizedRegression:
         return obj, grad
 
 
-    def initialize_params(self, binit, winit, s2init, inv_binit, is_b_coef):
+    def initialize_params(self, binit, winit, s2init, t0init, is_coef):
         n, p = self._X.shape
         k    = self._sk.shape[0]
         '''
-        if binit is not given, use blind initialization
-        if binit is given, could be either b or theta
+        if binit is not given, use blind initialization (all zero)
+        if binit is given, could be either coef or theta
         '''
         if binit is None:
             theta_init = np.zeros(p)
@@ -222,18 +234,17 @@ class PenalizedRegression:
             if winit  is None: winit  = self.initialize_mixcoef(k)
             should_unshrink = False
         else:
-            if is_b_coef:
-                ### binit are coefficients, theta = M^{-1}(binit)
+            if is_coef:
+                ### binit are coefficients, we have to find theta = M^{-1}(binit)
                 if s2init is None: s2init = np.var(self._y - np.dot(self._X, binit))
                 if winit  is None: winit  = mix_gauss.emfit(binit, self._sk)
+                if t0init is None: t0init = np.zeros(p)
                 if self._b_use_Minverse:
-                    if inv_binit is None:
-                        inv_binit = np.zeros(p)
-                    pmash = PenMrASH(self._X, self._y, inv_binit, np.sqrt(s2init), winit, self._sk, dj = self._dj,
+                    pmash = PenMrASH(self._X, self._y, t0init, np.sqrt(s2init), winit, self._sk, dj = self._dj,
                                      debug = self._debug, is_prior_scaled = self._is_prior_scaled)
                     theta_init = pmash.unshrink_b(binit)
                 elif self._b_use_heuristic:
-                    theta_init = self.b_to_theta(binit)
+                    theta_init = self.coef_to_theta(binit)
             else:
                 ### binit = theta, therefore coef = M(binit)
                 ### if theta_init is given, we also expect winit and s2init to be given
@@ -248,7 +259,8 @@ class PenalizedRegression:
             akinit = winit.copy()
         elif self._w_use_softmax:
             akinit = np.log(winit + 1e-8) / np.log(self._softmax_base)
-        return theta_init, akinit, s2init
+            winit  = softmax(akinit, base = self._softmax_base)
+        return theta_init, winit, akinit, s2init
 
 
     def fit(self, X, y, sk, binit = None, winit = None, s2init = None,
@@ -266,29 +278,127 @@ class PenalizedRegression:
         '''
         self._X  = X
         self._sk = sk
-        self._dj = np.sum(np.square(X), axis = 0)
         self._intercept = np.mean(y) if self._use_intercept else 0
         self._y = y - self._intercept
-        self._v2inv = np.zeros((p, k))
-        self._v2inv[:, 1:] = 1 / (self._dj.reshape(p, 1) + 1 / np.square(self._sk[1:]).reshape(1, k - 1))
         self._softmax_base = softmax_base
+        self._dj = np.sum(np.square(self._X), axis = 0)
         '''
         Initialization
         '''
-        binit, akinit, s2init = self.initialize_params(binit, winit, s2init, inv_binit, is_binit_coef)
+        binit, wkinit, akinit, s2init = self.initialize_params(binit, winit, s2init, inv_binit, is_binit_coef)
         self._binit  = binit
         self._akinit = akinit
         self._s2init = s2init
+        self._wkinit = wkinit
+        '''
+        Minimization
+        '''
+        if self._method == 'L-BFGS-B' and self._lbfgsb_use_fortran:
+            '''
+            Use Fortran minimization
+            '''
+            self.fit_fortran()
+        else:
+            '''
+            Use Scipy minimization
+            '''
+            self.fit_python()
+        return
+
+
+    def fit_fortran(self):
+        '''
+        set options
+        '''
+        smlb    = np.log(self._softmax_base)
+        iprint  = 1 if self._opts['disp'] else -1
+        factr   = self._opts['ftol'] / np.finfo(float).eps
+        pgtol   = self._opts['gtol']
+        maxiter = self._opts['maxiter']
+        maxfun  = self._opts['maxfun']
+        '''
+        number of parameters to be optimized
+        (required as input to Fortran)
+        '''
+        nparams = 0
+        if self._optimize_b: nparams += self._X.shape[1]
+        if self._optimize_w: nparams += self._sk.shape[0]
+        if self._optimize_s: nparams += 1
+        '''
+        Call L-BFGS-B drive
+        '''
+        bopt, wkopt, s2opt, obj, grad, nfev, niter, task = \
+            flib_lbfgsb_driver.min_plr_shrinkop(self._X, self._y, 
+                                                self._binit, self._wkinit, self._s2init,
+                                                self._sk, nparams, 
+                                                self._optimize_b, self._optimize_w, self._optimize_s,
+                                                smlb, 10, iprint, factr, pgtol, 
+                                                maxiter, maxfun)
+        '''
+        Set output values
+        '''
+        xopt = self.combine_optparams(bopt, wkopt, s2opt)
+        coef = self.theta_to_coef(bopt, wkopt, s2opt)
+        self._theta = bopt
+        self._coef  = coef
+        self._prior = wkopt
+        self._s2    = s2opt
+        '''
+        Status from task message
+        '''
+        task_str = task.strip(b'\x00').strip()
+        if task_str.startswith(b'CONV'):
+            warnflag = 0
+        elif nfev > maxfun or niter >= maxiter:
+            warnflag = 1
+        else:
+            warnflag = 2
+        '''
+        TO-DO: These values are not returned yet
+        '''
+        self._hpath      = list()
+        self._s2path     = list()
+        self._prior_path = list()
+        self._coef_path  = list()
+        self._theta_path = list()
+        self._elbo_path  = list()
+        self._fitobj     = spOptimizeResult(fun = obj, jac = grad, nfev = nfev,
+                                            njev = nfev, nit = niter, status = warnflag,
+                                            message = task_str.decode(), x = xopt, 
+                                            success = (warnflag == 0),
+                                            hess_inv = None)
+
+        '''
+        Debug logging
+        '''
+        if not self._call_from_em:
+            print (f"mr.ash.pen terminated at iteration {niter}.")
+            print (task_str.decode())
+        self.logger.debug(f'Number of iterations: {niter}')
+        self.logger.debug(f'Number of function calls: {nfev}')
+        self.logger.debug(f'Message from Fortran routine:\n{task}')
+        return
+            
+
+
+    def fit_python(self):
+        ''' 
+        This values will not change during the optimization
+        '''
+        n, p = self._X.shape
+        k = self._sk.shape[0]
+        self._v2inv = np.zeros((p, k))
+        self._v2inv[:, 1:] = 1 / (self._dj.reshape(p, 1) + 1 / np.square(self._sk[1:]).reshape(1, k - 1))
         '''
         Combine all parameters
         '''
-        params = self.combine_optparams(binit, akinit, s2init)
+        params = self.combine_optparams(self._binit, self._akinit, self._s2init)
         '''
         Bounds for optimization
         '''
-        bbounds = [(None, None) for x in binit]
-        abounds = [(1e-8, None) for x in akinit]
-        if self._w_use_softmax: abounds = [(None, None) for x in akinit]
+        bbounds = [(None, None) for x in self._binit]
+        abounds = [(1e-8, None) for x in self._akinit]
+        if self._w_use_softmax: abounds = [(None, None) for x in self._akinit]
         s2bound = [(1e-8, None)]
         # bounds can be used with L-BFGS-B.
         bounds = None
@@ -309,7 +419,6 @@ class PenalizedRegression:
         self._obj_call_count = 0
         plr_min = sp_optimize.minimize(self.objective, 
                                        params,
-                                       #args = args, 
                                        method = self._method, 
                                        jac = True,
                                        bounds = bounds, 
@@ -335,6 +444,7 @@ class PenalizedRegression:
         self.logger.debug(f'Number of iterations: {plr_min.nit}')
         self.logger.debug(f'Number of callbacks: {self._callback_count}')
         self.logger.debug(f'Number of function calls: {self._obj_call_count}')
+        return
 
 
     def split_optparams(self, optparams):
@@ -418,7 +528,7 @@ class PenalizedRegression:
         return coef
 
 
-    def b_to_theta(self, b):
+    def coef_to_theta(self, b):
         n, p = self._X.shape
         r    = self._y - np.mean(self._y) - np.dot(self._X, b)
         rj   = r.reshape(n, 1) + self._X * b.reshape(1, p)

@@ -2,6 +2,7 @@ module lbfgsb_driver
     use env_precision
     use global_parameters
     use futils, only: softmax, softmax_gradient
+    use optutils, only: combine_parameters, split_parameters, combine_integer_parameters
     implicit none
 !
 contains
@@ -427,109 +428,6 @@ contains
         end do
         niter = isave(30)
         nfev  = isave(34)
-    end subroutine
-!
-    subroutine split_parameters(x, t, a, s, is_topt, opt_a, opt_s)
-!   
-!   x = [t_1, t_2, ... t_p, a_1, a_2, ..., a_k, s]
-!   This subroutine helps to split an array of DOUBLE PRECISION variables x
-!   to its constituents: array t, array a, and variable s.
-!       x contains t only if is_topt = .true.
-!       x contains w only if is_wopt = .true.
-!       x contains s only if opt_s = .true.
-!   nparams is an INTEGER which contains the total number of variables in x.
-!   p is an INTEGER; size of t
-!   k is an INTEGER; size of a
-!
-        implicit none
-        integer(i4k) :: p, k, iopt
-        real(r8k)    :: x(:), t(:), a(:), s
-        logical      :: is_topt, opt_a, opt_s
-!
-        p = size(t)
-        k = size(a)
-        iopt = 0 
-        if (is_topt) then
-            t = x(1:p)
-            iopt = p
-        end if
-        if (opt_a) then
-            a = x(iopt+1:iopt+k)
-            iopt = iopt + k
-        end if
-        if (opt_s) then
-            s = x(iopt+1)
-        end if
-    end subroutine
-
-    subroutine combine_parameters(x, t, a, s, is_topt, opt_a, opt_s)
-!   
-!   x = [t_1, t_2, ... t_p, a_1, a_2, ..., a_k, s]
-!   This subroutine helps to combine array t, array a, and variable s
-!   to an array of DOUBLE PRECISION variables x.
-!       x contains t only if is_topt = .true.
-!       x contains w only if is_wopt = .true.
-!       x contains s only if opt_s = .true.
-!   nparams is an INTEGER which contains the total number of variables in x.
-!   p is an INTEGER; size of t
-!   k is an INTEGER; size of a
-!
-!   see combine_integer_parameters() for combining INTEGER variables.
-!
-        implicit none
-        integer(i4k) :: p, k, iopt
-        real(r8k)    :: x(:), t(:), a(:), s
-        logical      :: is_topt, opt_a, opt_s
-!
-        p = size(t)
-        k = size(a)
-        iopt = 0 
-        if (is_topt) then
-            x(1:p) = t
-            iopt = p
-        end if
-        if (opt_a) then
-            x(iopt+1:iopt+k) = a
-            iopt = iopt + k
-        end if
-        if (opt_s) then
-            x(iopt+1) = s
-        end if
-    end subroutine
-
-    subroutine combine_integer_parameters(x, t, a, s, is_topt, opt_a, opt_s)
-!   
-!   same as combine_parameters() but for INTEGER variables in t, a, s and x.
-!
-!   x = [t_1, t_2, ... t_p, a_1, a_2, ..., a_k, s]
-!   This subroutine helps to combine array t, array a, and variable s
-!   to an array of INTEGER variables x.
-!       x contains t only if is_topt = .true.
-!       x contains w only if is_wopt = .true.
-!       x contains s only if opt_s = .true.
-!   nparams is an INTEGER which contains the total number of variables in x.
-!   p is an INTEGER; size of t
-!   k is an INTEGER; size of a
-!
-        implicit none
-        integer(i4k) :: p, k, iopt
-        integer(i4k) :: x(:), t(:), a(:), s
-        logical      :: is_topt, opt_a, opt_s
-!
-        p = size(t)
-        k = size(a)
-        iopt = 0 
-        if (is_topt) then
-            x(1:p) = t 
-            iopt = p 
-        end if
-        if (opt_a) then
-            x(iopt+1:iopt+k) = a 
-            iopt = iopt + k 
-        end if
-        if (opt_s) then
-            x(iopt+1) = s 
-        end if
     end subroutine
 !
     subroutine prnstop( iprint, n, iter, nfgv, nintol, nskip, nact,            &

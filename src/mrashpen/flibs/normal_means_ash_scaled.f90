@@ -1,14 +1,14 @@
 module normal_means_ash_scaled
     use env_precision
     use global_parameters
-    use futils, only: log_sum_exponent2d
+    use futils, only: log_sum_exponent2d!, print_vector
     implicit none
 
 contains
 
     subroutine normal_means_ash_lml(ndim, ncomp, y, s2, wk, sk, djinv,           &
-                                    lml, lml_bd, lml_wd, lml_s2d,                &
-                                    lml_bd_bd, lml_bd_wd, lml_bd_s2d)
+                                    lml, lml_bd, lml_wdT, lml_s2d,               &
+                                    lml_bd_bd, lml_bd_wdT, lml_bd_s2d)
         integer(i4k), intent(in) :: ndim, ncomp
         real(r8k), intent(in)    :: y(ndim), djinv(ndim)
         real(r8k), intent(in)    :: s2
@@ -17,13 +17,13 @@ contains
         real(r8k), dimension(ndim), intent(out) :: lml
         real(r8k), dimension(ndim), intent(out) :: lml_bd,    lml_s2d
         real(r8k), dimension(ndim), intent(out) :: lml_bd_bd, lml_bd_s2d
-        real(r8k), dimension(ndim, ncomp), intent(out) :: lml_wd
-        real(r8k), dimension(ndim, ncomp), intent(out) :: lml_bd_wd
+        real(r8k), dimension(ncomp, ndim), intent(out) :: lml_wdT
+        real(r8k), dimension(ncomp, ndim), intent(out) :: lml_bd_wdT
 
 !       local variables
         real(r8k), dimension(ncomp, ndim) :: lkp0, lkp1, lkp2
         real(r8k), dimension(ncomp, ndim) :: v2kp, logv2kp
-        real(r8k), dimension(ncomp, ndim) :: lml_wdT, lml_bd_wdT
+!        real(r8k), dimension(ncomp, ndim) :: lml_wdT, lml_bd_wdT
         real(r8k), dimension(ndim)        :: lsum_wl0, lsum_wl1, lsum_wl2
         real(r8k), dimension(ndim)        :: lsum_wl1v2, lsum_wl2v2
         !real(r8k), dimension(ndim)        :: lml_bd_over_y
@@ -78,7 +78,7 @@ contains
         call log_sum_wkLkp( ncomp, ndim, nzk, logwk, lkp2,           nzwk_idx, lsum_wl2 )
         call log_sum_wkLkp( ncomp, ndim, nzk, logwk, lkp1 + logv2kp, nzwk_idx, lsum_wl1v2 )
         call log_sum_wkLkp( ncomp, ndim, nzk, logwk, lkp2 + logv2kp, nzwk_idx, lsum_wl2v2 )
-
+!
 !       ========================
 !       Calculate L (log marginal likelihood)
 !       ========================
@@ -120,9 +120,6 @@ contains
             rtmp1                 = - y2_by_s2 * e_wl2_wl0 + 3.0d0 * e_wl2v2_wl0
             lml_bd_s2d(j)         = (d_half * y(j) * rtmp1) - (lml_bdj * lml_s2d(j))
         end do
-        lml_bd_wd = transpose(lml_bd_wdT)
-        lml_wd  = transpose(lml_wdT)
-!
 ! !       ========================
 ! !       Calculate derivatives of L with respect to b, w and s2
 ! !       ========================
@@ -153,100 +150,7 @@ contains
     end subroutine normal_means_ash_lml
 !
 !
-!!!!    subroutine calculate_nm_lml_grads(ndim, ncomp, y, y2, s2, lkp0, lkp1, lml,      &
-!!!!                                      lsum_wl0, lsum_wl1, lsum_wl2,                 &
-!!!!                                      lsum_wl1v2, lsum_wl2v2,                       &
-!!!!                                      lml_bd, lml_wd, lml_s2d,                      &
-!!!!                                      lml_bd_bd, lml_bd_wd, lml_bd_s2d)
-!!!!        integer(i4k), intent(in) :: ndim, ncomp
-!!!!        real(r8k), intent(in)    :: y(ndim), y2(ndim)
-!!!!        real(r8k), intent(in)    :: s2
-!!!!        real(r8k), intent(in)    :: lkp0(ncomp, ndim), lkp1(ncomp, ndim)
-!!!!        real(r8k), intent(in)    :: lml(ndim)
-!!!!        real(r8k), intent(in)    :: lsum_wl0(ndim), lsum_wl1(ndim), lsum_wl2(ndim)
-!!!!        real(r8k), intent(in)    :: lsum_wl1v2(ndim), lsum_wl2v2(ndim)
-!!!!        real(r8k), dimension(ndim), intent(out) :: lml_bd,    lml_s2d
-!!!!        real(r8k), dimension(ndim), intent(out) :: lml_bd_bd, lml_bd_s2d
-!!!!        real(r8k), dimension(ndim, ncomp), intent(out) :: lml_wd
-!!!!        real(r8k), dimension(ndim, ncomp), intent(out) :: lml_bd_wd
-!!!!        integer                  :: i, j
-!!!!        real(r8k)                :: rtmp1, lml_bdj
-!!!!        !real(r8k)                :: lml_bd_over_y(ndim)
-!!!!        real(r8k)                :: lml_wdT(ncomp, ndim), lml_bd_wdT(ncomp, ndim)
-!!!!!        real(r8k), dimension(ndim) :: e_wl1_wl0, e_wl2_wl0, e_wl1v2_wl0, e_wl2v2_wl0, y2_by_s2
-!!!!!        real(r8k), dimension(ncomp, ndim) :: e_lkp1_lkp0
-!!!!        real(r8k) :: e_wl1_wl0, e_wl2_wl0, e_wl1v2_wl0, e_wl2v2_wl0, y2_by_s2
-!!!!        real(r8k) :: e_lkp1_lkp0
-!!!!        
-!!!!
-!!!!! !       ========================
-!!!!! !       Calculate derivatives of L with respect to b, w and s2
-!!!!! !       ========================
-!!!!!         do j = 1, ndim
-!!!!!             rtmp1             = exp(lsum_wl1(j) - lsum_wl0(j))
-!!!!!             lml_bd_over_y(j)  = - rtmp1
-!!!!!             lml_bd(j)         = y(j) * lml_bd_over_y(j)
-!!!!!             do i = 1, ncomp
-!!!!!                 lml_wdT(i, j) = exp(-d_half * log2pi + lkp0(i, j) - lml(j))
-!!!!!             end do
-!!!!!             lml_s2d(j)        = ((y2(j) / s2) * rtmp1 - exp(lsum_wl1v2(j) - lsum_wl0(j))) * d_half
-!!!!!         end do
-!!!!!         lml_wd  = transpose(lml_wdT)
-!!!!! 
-!!!!! !       ========================
-!!!!! !       Calculate derivatives of L' with respect to b, w and s2
-!!!!! !       ========================
-!!!!!         do j = 1, ndim
-!!!!!             rtmp1                 = exp(lsum_wl2(j) - lsum_wl0(j))
-!!!!!             lml_bd_bd(j)          = lml_bd_over_y(j) + y2(j) * rtmp1 - (lml_bd(j) * lml_bd(j))
-!!!!!             do i = 1, ncomp
-!!!!!                 lml_bd_wdT(i, j)  = - lml_wdT(i, j) * (y(j) * exp(lkp1(i, j) - lkp0(i, j)) + lml_bd(j))
-!!!!!             end do
-!!!!!             rtmp2                 = - (y2(j) / s2) * rtmp1 + 3.0d0 * exp(lsum_wl2v2(j) - lsum_wl0(j))
-!!!!!             lml_bd_s2d(j)         = (d_half * y(j) * rtmp2) - (lml_bd(j) * lml_s2d(j))
-!!!!!         end do
-!!!!!         lml_bd_wd = transpose(lml_bd_wdT)
-!!!!!       ========================
-!!!!!       Calculate derivatives of L with respect to b, w and s2
-!!!!!       ========================
-!!!!!        e_wl1_wl0   = exp( lsum_wl1 - lsum_wl0 )
-!!!!!        e_wl2_wl0   = exp( lsum_wl2 - lsum_wl0 )
-!!!!!        e_lkp1_lkp0 = exp( lkp1 - lkp0 )
-!!!!!        e_wl1v2_wl0 = exp( lsum_wl1v2 - lsum_wl0 )
-!!!!!        e_wl2v2_wl0 = exp( lsum_wl2v2 - lsum_wl0 )
-!!!!!        y2_by_s2    = y2 / s2
-!!!!
-!!!!        do j = 1, ndim
-!!!!
-!!!!            e_wl1_wl0   = exp( lsum_wl1(j) - lsum_wl0(j) )
-!!!!            e_wl2_wl0   = exp( lsum_wl2(j) - lsum_wl0(j) )
-!!!!            e_wl1v2_wl0 = exp( lsum_wl1v2(j) - lsum_wl0(j) )
-!!!!            e_wl2v2_wl0 = exp( lsum_wl2v2(j) - lsum_wl0(j) )
-!!!!            y2_by_s2    = y2(j) / s2
-!!!!
-!!!!            lml_bd(j)         = - y(j) * e_wl1_wl0
-!!!!            do i = 1, ncomp
-!!!!                lml_wdT(i, j) = exp(-d_half * log2pi + lkp0(i, j) - lml(j))
-!!!!            end do
-!!!!            lml_s2d(j)        = ( (y2_by_s2 * e_wl1_wl0)  - e_wl1v2_wl0 ) * d_half
-!!!!
-!!!!!       ========================
-!!!!!       Calculate derivatives of L' with respect to b, w and s2
-!!!!!       ========================
-!!!!            lml_bdj               = lml_bd(j)
-!!!!            lml_bd_bd(j)          =  - e_wl1_wl0 + y2(j) * e_wl2_wl0 - (lml_bdj * lml_bdj)
-!!!!            do i = 1, ncomp
-!!!!                e_lkp1_lkp0       = exp( lkp1(i,j) - lkp0(i,j) )
-!!!!                lml_bd_wdT(i, j)  = - lml_wdT(i, j) * (y(j) * e_lkp1_lkp0 + lml_bdj)
-!!!!            end do
-!!!!            rtmp1                 = - y2_by_s2 * e_wl2_wl0 + 3.0d0 * e_wl2v2_wl0
-!!!!            lml_bd_s2d(j)         = (d_half * y(j) * rtmp1) - (lml_bdj * lml_s2d(j))
-!!!!        end do
-!!!!        lml_bd_wd = transpose(lml_bd_wdT)
-!!!!        lml_wd  = transpose(lml_wdT)
-!!!!    end subroutine
-
-    subroutine calculate_logLkp(p, k, y2, sigma2, v2kp, logv2kp,                  &
+    subroutine calculate_logLkp(p, k, y2, sigma2, v2kp, logv2kp,                    &
                                 logLkp0, logLkp1, logLkp2)
         integer(i4k), intent(in) :: p, k
         real(r8k), intent(in)    :: y2(p)
@@ -255,27 +159,18 @@ contains
         real(r8k), dimension(k, p), intent(out) :: logLkp0, logLkp1, logLkp2
 !       local variables
         integer(i4k) :: j
-        real(r8k)    :: a0, a1, a2
-        real(r8k)    :: logs2!, t1, t2
-        real(r8k)    :: arr1(k), arr2(k), arr3(k), arr4(k)
+        real(r8k)    :: logs2
+        real(r8k)    :: arr1(k), arr2(k)
         real(r8k)    :: y2_by_s2(p)
 
         logs2 = log(sigma2)
-        a0 = d_one
-        a1 = 3 * d_one
-        a2 = 5 * d_one
         y2_by_s2 = y2 / sigma2
         do j = 1, p
             arr1 = logs2 + logv2kp(:, j)
             arr2 = y2_by_s2(j) / v2kp(:, j)
-            arr3 = - d_half * (arr1 + arr2)
-            arr4 = arr1 + arr3
-            logLkp0(:, j) = arr3
-            logLkp1(:, j) = arr4
-            logLkp2(:, j) = arr1 + arr4
-            !logLkp0(:, j) = - d_half * (a0 * arr1 + arr2)
-            !logLkp1(:, j) = - d_half * (a1 * arr1 + arr2)
-            !logLkp2(:, j) = - d_half * (a2 * arr1 + arr2)
+            logLkp0(:, j) = - d_half * (arr1 + arr2)
+            logLkp1(:, j) = logLkp0(:, j) - arr1
+            logLkp2(:, j) = logLkp1(:, j) - arr1
         end do
     end subroutine calculate_logLkp
 

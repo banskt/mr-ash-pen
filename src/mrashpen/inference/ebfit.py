@@ -71,6 +71,7 @@ def ebfit(X, y, sk,
           maxiter = qb_maxiter,
           unshrink_method = unshrink_method,
           prior_optim_method = 'softmax',
+          lbfgsb_call = 'python',
           call_from_em = True)
     
     

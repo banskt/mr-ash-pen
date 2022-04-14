@@ -25,11 +25,11 @@ contains
 !       NMash variables
         real(r8k), dimension(p)    :: lml
         real(r8k), dimension(p)    :: lml_bd,  lml_bd_bd
-        real(r8k), dimension(p, k) :: lml_wd,  lml_bd_wd
+        real(r8k), dimension(k, p) :: lml_wd,  lml_bd_wd
         real(r8k), dimension(p)    :: lml_s2d, lml_bd_s2d
 !       local variables (shrinkage operator)
         real(r8k), dimension(p)    :: Mb, Mb_bgrad, Mb_s2grad
-        real(r8k), dimension(p, k) :: Mb_wgrad
+        real(r8k), dimension(k, p) :: Mb_wgrad
 !       local variables (penalty operator)
         real(r8k), dimension(p)    :: lambdaj
         real(r8k), dimension(p)    :: l_bgrad, l_s2grad
@@ -39,8 +39,6 @@ contains
         real(r8k)                  :: rTr
         real(r8k), dimension(p)    :: bvar, rTX
         real(r8k), dimension(k)    :: v1 !, v2
-!
-!        integer :: i, j
 !
         bvar = s2 * djinv
 !
@@ -55,26 +53,26 @@ contains
         lml_bd_bd = d_zero
         lml_bd_wd = d_zero
         lml_bd_s2d = d_zero
-        call normal_means_ash_lml(p, k, b, s2, wk, sk, djinv,                        &
-                                  lml, lml_bd, lml_wd, lml_s2d,                      &
+        call normal_means_ash_lml(p, k, b, s2, wk, sk, djinv,                       &
+                                  lml, lml_bd, lml_wd, lml_s2d,                     &
                                   lml_bd_bd, lml_bd_wd, lml_bd_s2d)
 !
 !       ========================
 !       Objective function
 !       ========================
-        call plr_shrinkage_operator(b, bvar, djinv,                                  &
-                                    lml_bd, lml_bd_bd, lml_bd_wd, lml_bd_s2d,        &
+        call plr_shrinkage_operator(p, k, b, bvar, djinv,                           &
+                                    lml_bd, lml_bd_bd, lml_bd_wd, lml_bd_s2d,       &
                                     Mb, Mb_bgrad, Mb_wgrad, Mb_s2grad)
-        call plr_penalty_operator(b, bvar, djinv,                                    &
-                                  lml, lml_bd, lml_wd, lml_s2d,                      &
-                                  lml_bd_bd, lml_bd_wd, lml_bd_s2d,                  &
+        call plr_penalty_operator(p, k, bvar, djinv,                                &
+                                  lml, lml_bd, lml_wd, lml_s2d,                     &
+                                  lml_bd_bd, lml_bd_wd, lml_bd_s2d,                 &
                                   lambdaj, l_bgrad, l_wgrad, l_s2grad)
         XMb = d_zero
         call dgemv('N', n, p, d_one, X, n, Mb, 1, d_zero, XMb, 1)
         r    = y - XMb ! vector addition, F90
         rTr  = ddot(n, r, 1, r, 1)
-        obj  = (d_half * rTr / s2)                                                   &
-               + sum(lambdaj)                                                        &
+        obj  = (d_half * rTr / s2)                                                  &
+               + sum(lambdaj)                                                       &
                + d_half * (n - p) * (log2pi + log(s2))
 !
 !       ========================
@@ -87,103 +85,72 @@ contains
 !
 !       Gradient with respect to w
         v1 = d_zero
-!        write (6, *) 'v1 =>'
-!        call print_vector(v1, k)
-        call dgemv('T', p, k, d_one, Mb_wgrad, p, rTX, 1, d_zero, v1, 1)
-!        call print_vector(v1, k)
+        call dgemv('N', k, p, d_one, Mb_wgrad, k, rTX, 1, d_zero, v1, 1)
         wgrad  = - (v1 / s2) + l_wgrad
-!        write (6, *) "subroutine wgrad"
-!        call print_vector(wgrad, k)
 !
 !       Gradient with respect to s2
         s2grad = - d_half * (rTr / (s2 * s2))                                        &
                  - ddot(p, rTX, 1, Mb_s2grad, 1) / s2                                &
                  + sum(l_s2grad)                                                     &
                  + d_half * (n - p) / s2
-!        write (6, *) "subroutine s2grad"
-!        write (6, *) s2grad
 
     end subroutine plr_obj_grad_shrinkop
 !
 !
-    subroutine plr_shrinkage_operator(b, bvar, djinv,                                &
+    subroutine plr_shrinkage_operator(p, k, b, bvar, djinv,                          &
                                       lml_bd, lml_bd_bd, lml_bd_wd, lml_bd_s2d,      &
                                       Mb, Mb_bgrad, Mb_wgrad, Mb_s2grad)
-        use env_precision
-        use global_parameters
         implicit none
-        real(r8k), intent(in)  :: b(:), bvar(:)
-        real(r8k), intent(in)  :: djinv(:)
-        real(r8k), intent(in)  :: lml_bd(:), lml_bd_bd(:)
-        real(r8k), intent(in)  :: lml_bd_wd(:, :)
-        real(r8k), intent(in)  :: lml_bd_s2d(:)
-        real(r8k), intent(out) :: Mb(size(b)), Mb_bgrad(size(b))
-        real(r8k), intent(out) :: Mb_wgrad(size(b), size(lml_bd_wd, 2))
-        real(r8k), intent(out) :: Mb_s2grad(size(b))
-!       local variables
-        integer(i4k) :: p, k
-        real(r8k), allocatable :: bvar_mat(:, :)
-        !real(r8k), allocatable :: v_one(:), bvar_mat(:, :)
+        integer(i4k), intent(in) :: p, k
+        real(r8k), intent(in)  :: b(p), bvar(p)
+        real(r8k), intent(in)  :: djinv(p)
+        real(r8k), intent(in)  :: lml_bd(p), lml_bd_bd(p)
+        real(r8k), intent(in)  :: lml_bd_wd(k, p)
+        real(r8k), intent(in)  :: lml_bd_s2d(p)
+        real(r8k), intent(out) :: Mb(p), Mb_bgrad(p)
+        real(r8k), intent(out) :: Mb_wgrad(k, p)
+        real(r8k), intent(out) :: Mb_s2grad(p)
+        integer(i4k) :: j
 !
-!       internal placeholders
-        p     = size(b)
-        k     = size(lml_bd_wd, 2)
-        !if( allocated(v_one) )  deallocate( v_one )
-        if( allocated(bvar_mat) )  deallocate( bvar_mat )
-        !allocate (v_one(p), bvar_mat(p, k))
-        allocate(bvar_mat(p, k))
-        !v_one = d_one
-        call duplicate_columns(bvar, k, bvar_mat)
-!    
-!       calculation
         Mb        = b + (bvar * lml_bd)
         Mb_bgrad  = d_one + (bvar * lml_bd_bd)
-        Mb_wgrad  = bvar_mat * lml_bd_wd
+        do j = 1, p
+            Mb_wgrad(:, j) = bvar(j) * lml_bd_wd(:, j)
+        end do
         Mb_s2grad = (lml_bd * djinv) + (bvar * lml_bd_s2d)
     end subroutine
 !
 !
-    subroutine plr_penalty_operator(b, bvar, djinv,                                  &
+    subroutine plr_penalty_operator(p, k, bvar, djinv,                               &
                                     lml, lml_bd, lml_wd, lml_s2d,                    &
                                     lml_bd_bd, lml_bd_wd, lml_bd_s2d,                &
                                     lambdaj, l_bgrad, l_wgrad, l_s2grad)
-        use env_precision
-        use global_parameters
         implicit none
-        real(r8k), intent(in)  :: b(:), bvar(:)
-        real(r8k), intent(in)  :: djinv(:)
-        real(r8k), intent(in)  :: lml(:), lml_bd(:), lml_bd_bd(:)
-        real(r8k), intent(in)  :: lml_wd(:, :), lml_bd_wd(:, :)
-        real(r8k), intent(in)  :: lml_s2d(:), lml_bd_s2d(:)
-        real(r8k), intent(out) :: lambdaj(size(b)), l_bgrad(size(b))
-        real(r8k), intent(out) :: l_wgrad(size(lml_wd, 2))
-        real(r8k), intent(out) :: l_s2grad(size(b))
+        integer(i4k), intent(in) :: p, k
+        real(r8k), intent(in)  :: bvar(p)
+        real(r8k), intent(in)  :: djinv(p)
+        real(r8k), intent(in)  :: lml(p), lml_bd(p), lml_bd_bd(p)
+        real(r8k), intent(in)  :: lml_wd(k, p), lml_bd_wd(k, p)
+        real(r8k), intent(in)  :: lml_s2d(p), lml_bd_s2d(p)
+        real(r8k), intent(out) :: lambdaj(p), l_bgrad(p)
+        real(r8k), intent(out) :: l_wgrad(k)
+        real(r8k), intent(out) :: l_s2grad(p)
 !       local variables
-        integer(i4k) :: p, k
-        real(r8k), allocatable :: M1(:, :), M2(:, :), M3(:, :)
-        real(r8k), allocatable :: v1(:)
-!
-!       internal placeholders
-        p     = size(b)
-        k     = size(lml_wd, 2)
-        if( allocated(M1) )  deallocate(M1)
-        if( allocated(M2) )  deallocate(M2)
-        if( allocated(M3) )  deallocate(M3)
-        if( allocated(v1) )  deallocate(v1)
-        allocate(M1(p, k), M2(p, k), M3(p, k))
-        allocate(v1(p))
+        real(r8k)              :: v1(p), v2(p)
+        integer(i4k)           :: j
 !
 !       Calculation
         lambdaj  = - lml - d_half * bvar * lml_bd * lml_bd
 !       Gradient with respect to b
         l_bgrad  = - lml_bd - bvar * lml_bd * lml_bd_bd
 !       Gradient with respect to w
-        call duplicate_columns(bvar, k, M1)
-        call duplicate_columns(lml_bd, k, M2)
-        M3       = - lml_wd - (M1 * M2 * lml_bd_wd)
-        l_wgrad  = sum(M3, 1)
+        v1 = bvar * lml_bd !length p
+        l_wgrad = d_zero
+        do j = 1, p
+            l_wgrad = l_wgrad - lml_wd(:, j) - (v1(j) * lml_bd_wd(:, j))
+        end do
 !       Gradient with respect to s2
-        v1       = bvar * lml_bd * lml_bd_s2d
-        l_s2grad = - (lml_s2d + v1 + d_half * lml_bd * lml_bd * djinv)
+        v2       =  v1 * lml_bd_s2d
+        l_s2grad = - (lml_s2d + v2 + d_half * lml_bd * lml_bd * djinv)
     end subroutine plr_penalty_operator
 end module 

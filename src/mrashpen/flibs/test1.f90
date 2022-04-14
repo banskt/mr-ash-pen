@@ -23,7 +23,7 @@ program main
     integer, parameter :: p = 6, k = 3
     real(r8k), dimension(p)    :: lml 
     real(r8k), dimension(p)    :: lml_bd,  lml_bd_bd
-    real(r8k), dimension(p, k) :: lml_wd,  lml_bd_wd
+    real(r8k), dimension(k, p) :: lml_wd,  lml_bd_wd
     real(r8k), dimension(p)    :: lml_s2d, lml_bd_s2d
 
     real(r8k) :: ak(ncomp), wkmod(ncomp), akjac(ncomp, ncomp)
@@ -75,10 +75,8 @@ program main
     t2 = exp(t1)
     write (6, *) t2
     write (6, *) "Enter plr_mrash subroutine"
-    do i = 1, 5
-        call plr_obj_grad_shrinkop(nsample, ndim, X, y, b, s2, ncomp, wk, sk, djinv, obj, bgrad, wgrad, s2grad)
-        write (6, *) "Objective = ", obj
-    end do
+    call plr_obj_grad_shrinkop(nsample, ndim, X, y, b, s2, ncomp, wk, sk, djinv, obj, bgrad, wgrad, s2grad)
+    write (6, *) "Objective = ", obj
     write (6, *) "Returned"
     call softmax_jacobian(wk, smlogbase, akjac)
 !    akjac = softmax_jacobian(wk, smlogbase)
@@ -89,12 +87,11 @@ program main
         end do
     end do
 
-!       ========================
-!       Use normal means model
-!       ========================
-    call normal_means_ash_lml(p, k, b, s2, wk, sk, djinv,                    &
-                              lml, lml_bd, lml_wd, lml_s2d,                      &
+    write (6, *) "Enter normal_means_ash_lml subroutine" 
+    call normal_means_ash_lml(p, k, b, s2, wk, sk, djinv,                           &
+                              lml, lml_bd, lml_wd, lml_s2d,                         &
                               lml_bd_bd, lml_bd_wd, lml_bd_s2d)
+    write (6, *) "Returned"
 
 
 !    nparams = ndim + ncomp + 1
@@ -117,6 +114,8 @@ program main
     write (6, *) "log ML"
     call print_vector(lml, p)
     write (6, *) "Objective = ", obj
+    write (6, *) "logML_deriv"
+    call print_vector(lml_bd, p)
     write (6, *) "bgrad"
     call print_vector(bgrad, ndim)
     write (6, *) "wgrad"
