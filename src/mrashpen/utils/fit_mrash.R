@@ -30,6 +30,8 @@ update_sigma2 = TRUE
 if (opt$fix_sigma2) {
     update_sigma2 = FALSE;
     }
+
+start_time <- Sys.time()
 res = mr.ash.alpha::mr.ash(as.matrix(data$X), as.vector(data$y),
                            max.iter = opt$maxiter,
                            sa2 = as.vector(data$sk2),
@@ -39,5 +41,8 @@ res = mr.ash.alpha::mr.ash(as.matrix(data$X), as.vector(data$y),
                            update.pi = update_pi,
                            update.sigma2 = update_sigma2,
                            tol = list(epstol = opt$epstol, convtol = opt$convtol))
+end_time <- Sys.time()
+run_time <- difftime(end_time, start_time, units = "secs")
+res["run_time"] <- run_time
 
 saveRDS(res, file = opt$outfile)
