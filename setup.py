@@ -187,14 +187,16 @@ def ext_modules():
         f2py_info   = numpy_get_f2py_info()
         blas_info   = numpy_get_blas_info()
         extra_libraries = []
-        extra_compile_args = ['-O3', '-Wall', '-fbounds-check', '-g', '-Wno-uninitialized', '-fno-automatic', '-ffast-math']
+        extra_compile_args = []
+        f_compile_args = {
+            'extra_f77_compile_args': ['-O3', '-Wall', '-fbounds-check', '-g', '-Wno-uninitialized', '-fno-automatic', '-ffast-math', '-gdwarf-4', '-gstrict-dwarf'],
+            'extra_f90_compile_args': ['-O3', '-Wall', '-fbounds-check', '-g', '-Wno-uninitialized', '-fno-automatic', '-ffast-math', '-gdwarf-4', '-gstrict-dwarf']
+        }
         #
         flibs       = cfg_lib_todict(flib_cfgs, flib_dir, libprefix)
-        #fmodules    = [compile_extension_dict(k, v, extra_libraries, extra_compile_args, \
-        #                  **dict(extra_info = blas_info)) \
-        #                  for k, v in flibs.items()]
-        fmodules    = [compile_extension_dict(k, v, extra_libraries, extra_compile_args)  \
-                           for k, v in flibs.items()]
+        fmodules    = [compile_extension_dict(k, v, extra_libraries, extra_compile_args, \
+                          **dict(extra_info = f_compile_args)) \
+                          for k, v in flibs.items()]
     return cmodules + fmodules
 
 '''
